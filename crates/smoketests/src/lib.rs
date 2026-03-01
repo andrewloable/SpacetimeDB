@@ -149,6 +149,19 @@ macro_rules! require_emscripten {
     };
 }
 
+#[macro_export]
+macro_rules! require_tinygo {
+    () => {
+        if !$crate::have_tinygo() {
+            #[allow(clippy::disallowed_macros)]
+            {
+                eprintln!("Skipping test: tinygo not found in PATH");
+            }
+            return;
+        }
+    };
+}
+
 /// Helper macro for timing operations and printing results
 macro_rules! timed {
     ($label:expr, $expr:expr) => {{
@@ -350,6 +363,12 @@ pub fn build_typescript_sdk() -> Result<()> {
 pub fn have_emscripten() -> bool {
     static HAVE_EMSCRIPTEN: OnceLock<bool> = OnceLock::new();
     *HAVE_EMSCRIPTEN.get_or_init(|| which("emcc").is_ok() || which("emcc.bat").is_ok())
+}
+
+/// Returns true if TinyGo is available on the system.
+pub fn have_tinygo() -> bool {
+    static HAVE_TINYGO: OnceLock<bool> = OnceLock::new();
+    *HAVE_TINYGO.get_or_init(|| which("tinygo").is_ok() || which("tinygo.exe").is_ok())
 }
 
 /// A smoketest instance that manages a SpacetimeDB server and module project.
