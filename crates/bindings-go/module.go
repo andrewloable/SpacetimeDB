@@ -55,16 +55,23 @@ type SequenceDef struct {
 	Increment  int64  // typically 1
 }
 
+// ColumnDefaultValue pairs a column ID with its BSATN-encoded default value.
+type ColumnDefaultValue struct {
+	ColId uint16
+	Value []byte // BSATN-encoded default value
+}
+
 // TableDef describes a table to be registered in the module.
 type TableDef struct {
-	Name        string
-	Columns     []ColumnDef
-	PrimaryKey  []uint16 // ColId list; empty or length 1
-	Indexes     []IndexDef
-	Constraints []ConstraintDef
-	Sequences   []SequenceDef
-	Access      TableAccess
-	IsEvent     bool
+	Name          string
+	Columns       []ColumnDef
+	PrimaryKey    []uint16 // ColId list; empty or length 1
+	Indexes       []IndexDef
+	Constraints   []ConstraintDef
+	Sequences     []SequenceDef
+	Access        TableAccess
+	IsEvent       bool
+	DefaultValues []ColumnDefaultValue
 }
 
 // ReducerVisibility controls who can invoke a reducer.
@@ -97,12 +104,80 @@ type LifecycleDef struct {
 	Reducer string
 }
 
+// TypeDef exports a named type to client code generation.
+// The TypeRef must be a valid index into the module's typespace.
+type TypeDef struct {
+	// Scope is the namespace path (usually empty for top-level types).
+	Scope []string
+	// Name is the exported type name (must be unique within the module).
+	Name string
+	// TypeRef is the AlgebraicTypeRef index into the module typespace.
+	TypeRef uint32
+	// CustomOrdering controls whether the type has a custom field order.
+	CustomOrdering bool
+}
+
+// CaseConversionPolicy controls how identifier names are converted to canonical form.
+type CaseConversionPolicy uint8
+
+const (
+	// CaseConversionNone uses names verbatim with no conversion.
+	CaseConversionNone CaseConversionPolicy = 0
+	// CaseConversionSnakeCase converts names to snake_case (SpacetimeDB default).
+	CaseConversionSnakeCase CaseConversionPolicy = 1
+)
+
+// NameMappingKind identifies the entity type for an explicit name mapping.
+type NameMappingKind uint8
+
+const (
+	NameMappingTable    NameMappingKind = 0
+	NameMappingFunction NameMappingKind = 1
+	NameMappingIndex    NameMappingKind = 2
+)
+
+// ExplicitNameEntry maps a source name to a canonical name for a specific entity type.
+type ExplicitNameEntry struct {
+	// Kind identifies whether this mapping is for a table, function, or index.
+	Kind NameMappingKind
+	// SourceName is the name as defined in the module source.
+	SourceName string
+	// CanonicalName is the name used in system tables and client code generation.
+	CanonicalName string
+}
+
+// RLSDef defines a row-level security policy using a SQL expression.
+// The SQL expression is evaluated per-row per-client to determine visibility.
+// Only rows for which the expression evaluates to true are visible to that client.
+type RLSDef struct {
+	// SQL is the row-level security SQL expression.
+	SQL string
+}
+
+// ScheduleDef describes a scheduled reducer registration.
+// The referenced table must have a column of type types.AlgebraicScheduleAt.
+type ScheduleDef struct {
+	// SourceName is an optional override name. If nil, the host generates a unique name.
+	SourceName *string
+	// TableName is the name of the table containing the schedule column.
+	TableName string
+	// ScheduleAtCol is the zero-based column index of the ScheduleAt field.
+	ScheduleAtCol uint16
+	// ReducerName is the name of the reducer to call.
+	ReducerName string
+}
+
 // ── Module-level registries ───────────────────────────────────────────────────
 
 var (
-	tableRegistry     []TableDef
-	reducerRegistry   []ReducerDef
-	lifecycleRegistry []LifecycleDef
+	tableRegistry          []TableDef
+	reducerRegistry        []ReducerDef
+	lifecycleRegistry      []LifecycleDef
+	scheduleRegistry       []ScheduleDef
+	typeRegistry           []TypeDef
+	rlsRegistry            []RLSDef
+	explicitNameRegistry   []ExplicitNameEntry
+	caseConversionPolicy   *CaseConversionPolicy
 )
 
 // RegisterTableDef adds a table descriptor to the module registry.
@@ -120,6 +195,36 @@ func RegisterReducerDef(def ReducerDef) {
 // RegisterLifecycleDef assigns a reducer to a lifecycle event.
 func RegisterLifecycleDef(def LifecycleDef) {
 	lifecycleRegistry = append(lifecycleRegistry, def)
+}
+
+// RegisterScheduleDef registers a scheduled reducer.
+// The table referenced by def.TableName must have a ScheduleAt column at def.ScheduleAtCol.
+func RegisterScheduleDef(def ScheduleDef) {
+	scheduleRegistry = append(scheduleRegistry, def)
+}
+
+// SetCaseConversionPolicy sets the module-wide case conversion policy.
+// Overrides the default (SnakeCase). Call from an init() function.
+func SetCaseConversionPolicy(policy CaseConversionPolicy) {
+	caseConversionPolicy = &policy
+}
+
+// RegisterExplicitName adds an explicit source→canonical name mapping for an entity.
+func RegisterExplicitName(entry ExplicitNameEntry) {
+	explicitNameRegistry = append(explicitNameRegistry, entry)
+}
+
+// RegisterRLSDef registers a row-level security policy.
+// Only one RLS policy can be active per table; registering multiple policies is additive.
+func RegisterRLSDef(def RLSDef) {
+	rlsRegistry = append(rlsRegistry, def)
+}
+
+// RegisterTypeDef exports a named type for client code generation.
+// The TypeRef must be a valid index into the module's typespace (assigned by the host
+// from the Typespace section). Use this to give names to types referenced in table columns.
+func RegisterTypeDef(def TypeDef) {
+	typeRegistry = append(typeRegistry, def)
 }
 
 // ── WASM export ───────────────────────────────────────────────────────────────
@@ -151,9 +256,50 @@ func buildModuleDefBSATN() []byte {
 		typespaceTypes[i] = types.ProductType{Elements: elems}
 	}
 
+	// Collect internal function names (lifecycle + schedule reducers)
+	// and force their visibility to Private, matching the C# SDK behavior.
+	internalFunctions := make(map[string]bool)
+	for _, lc := range lifecycleRegistry {
+		internalFunctions[lc.Reducer] = true
+	}
+	for _, s := range scheduleRegistry {
+		internalFunctions[s.ReducerName] = true
+	}
+	for i := range reducerRegistry {
+		if internalFunctions[reducerRegistry[i].Name] {
+			reducerRegistry[i].Visibility = ReducerVisibilityPrivate
+		}
+	}
+	for i := range procedureRegistry {
+		if internalFunctions[procedureRegistry[i].Name] {
+			procedureRegistry[i].Visibility = ReducerVisibilityPrivate
+		}
+	}
+
 	// Count sections to emit.
 	numSections := 3 // Typespace + Tables + Reducers
+	if len(typeRegistry) > 0 {
+		numSections++
+	}
+	if len(procedureRegistry) > 0 {
+		numSections++
+	}
+	if len(viewRegistry) > 0 {
+		numSections++
+	}
+	if len(scheduleRegistry) > 0 {
+		numSections++
+	}
 	if len(lifecycleRegistry) > 0 {
+		numSections++
+	}
+	if len(rlsRegistry) > 0 {
+		numSections++
+	}
+	if caseConversionPolicy != nil {
+		numSections++
+	}
+	if len(explicitNameRegistry) > 0 {
 		numSections++
 	}
 
@@ -166,6 +312,15 @@ func buildModuleDefBSATN() []byte {
 	w.WriteArrayLen(uint32(len(typespaceTypes)))
 	for _, t := range typespaceTypes {
 		types.WriteAlgebraicType(w, t)
+	}
+
+	// Section: Types (variant tag 1), only if any named types are registered.
+	if len(typeRegistry) > 0 {
+		w.WriteVariantTag(1)
+		w.WriteArrayLen(uint32(len(typeRegistry)))
+		for _, td := range typeRegistry {
+			writeTypeDef(w, td)
+		}
 	}
 
 	// Section: Tables (variant tag 2).
@@ -182,12 +337,63 @@ func buildModuleDefBSATN() []byte {
 		writeReducerDef(w, r)
 	}
 
+	// Section: Procedures (variant tag 4), only if any are registered.
+	if len(procedureRegistry) > 0 {
+		w.WriteVariantTag(4)
+		w.WriteArrayLen(uint32(len(procedureRegistry)))
+		for _, p := range procedureRegistry {
+			writeProcedureDef(w, p)
+		}
+	}
+
+	// Section: Views (variant tag 5), only if any are registered.
+	if len(viewRegistry) > 0 {
+		w.WriteVariantTag(5)
+		w.WriteArrayLen(uint32(len(viewRegistry)))
+		for i, v := range viewRegistry {
+			writeViewDef(w, v, uint32(i))
+		}
+	}
+
+	// Section: Schedules (variant tag 6), only if any are registered.
+	if len(scheduleRegistry) > 0 {
+		w.WriteVariantTag(6)
+		w.WriteArrayLen(uint32(len(scheduleRegistry)))
+		for _, s := range scheduleRegistry {
+			writeScheduleDef(w, s)
+		}
+	}
+
 	// Section: LifeCycleReducers (variant tag 7), only if any are registered.
 	if len(lifecycleRegistry) > 0 {
 		w.WriteVariantTag(7)
 		w.WriteArrayLen(uint32(len(lifecycleRegistry)))
 		for _, lc := range lifecycleRegistry {
 			writeLifecycleDef(w, lc)
+		}
+	}
+
+	// Section: RowLevelSecurity (variant tag 8), only if any policies are registered.
+	if len(rlsRegistry) > 0 {
+		w.WriteVariantTag(8)
+		w.WriteArrayLen(uint32(len(rlsRegistry)))
+		for _, rls := range rlsRegistry {
+			writeRLSDef(w, rls)
+		}
+	}
+
+	// Section: CaseConversionPolicy (variant tag 9), only if explicitly set.
+	if caseConversionPolicy != nil {
+		w.WriteVariantTag(9)
+		w.WriteVariantTag(uint8(*caseConversionPolicy))
+	}
+
+	// Section: ExplicitNames (variant tag 10), only if any mappings are registered.
+	if len(explicitNameRegistry) > 0 {
+		w.WriteVariantTag(10)
+		w.WriteArrayLen(uint32(len(explicitNameRegistry)))
+		for _, e := range explicitNameRegistry {
+			writeExplicitNameEntry(w, e)
 		}
 	}
 
@@ -224,8 +430,13 @@ func writeTableDef(w *bsatn.Writer, t TableDef, typeRef uint32) {
 	w.WriteVariantTag(1)
 	// table_access: TableAccess
 	w.WriteVariantTag(uint8(t.Access))
-	// default_values: Vec<RawColumnDefaultValueV10> — always empty
-	w.WriteArrayLen(0)
+	// default_values: Vec<RawColumnDefaultValueV10>
+	w.WriteArrayLen(uint32(len(t.DefaultValues)))
+	for _, dv := range t.DefaultValues {
+		w.WriteU16(dv.ColId)
+		w.WriteArrayLen(uint32(len(dv.Value)))
+		w.WriteRaw(dv.Value)
+	}
 	// is_event: bool
 	w.WriteBool(t.IsEvent)
 }
@@ -307,12 +518,53 @@ func writeReducerDef(w *bsatn.Writer, r ReducerDef) {
 	types.WriteAlgebraicType(w, types.AlgebraicString)
 }
 
+// writeTypeDef serializes a RawTypeDefV10 value.
+func writeTypeDef(w *bsatn.Writer, td TypeDef) {
+	// source_name: RawScopedTypeNameV10 { scope: Vec<String>, name: String }
+	w.WriteArrayLen(uint32(len(td.Scope)))
+	for _, s := range td.Scope {
+		w.WriteString(s)
+	}
+	w.WriteString(td.Name)
+	// ty: AlgebraicTypeRef (u32)
+	w.WriteU32(td.TypeRef)
+	// custom_ordering: bool
+	w.WriteBool(td.CustomOrdering)
+}
+
+// writeScheduleDef serializes a RawScheduleDefV10 value.
+func writeScheduleDef(w *bsatn.Writer, s ScheduleDef) {
+	// source_name: Option<RawIdentifier>
+	writeOptString(w, s.SourceName)
+	// table_name: RawIdentifier
+	w.WriteString(s.TableName)
+	// schedule_at_col: ColId (u16)
+	w.WriteU16(s.ScheduleAtCol)
+	// function_name: RawIdentifier
+	w.WriteString(s.ReducerName)
+}
+
 // writeLifecycleDef serializes a RawLifeCycleReducerDefV10 value.
 func writeLifecycleDef(w *bsatn.Writer, lc LifecycleDef) {
 	// lifecycle_spec: Lifecycle (SumType: Init=0, OnConnect=1, OnDisconnect=2)
 	w.WriteVariantTag(uint8(lc.Kind))
 	// function_name: RawIdentifier
 	w.WriteString(lc.Reducer)
+}
+
+// writeExplicitNameEntry serializes an ExplicitNameEntry (ExplicitNameEntry enum variant).
+func writeExplicitNameEntry(w *bsatn.Writer, e ExplicitNameEntry) {
+	// variant tag: Table=0, Function=1, Index=2
+	w.WriteVariantTag(uint8(e.Kind))
+	// NameMapping { source_name, canonical_name }
+	w.WriteString(e.SourceName)
+	w.WriteString(e.CanonicalName)
+}
+
+// writeRLSDef serializes a RawRowLevelSecurityDefV10 value.
+func writeRLSDef(w *bsatn.Writer, rls RLSDef) {
+	// sql: RawSql (String)
+	w.WriteString(rls.SQL)
 }
 
 // writeOptString encodes an Option<String> using SpacetimeDB BSATN convention:

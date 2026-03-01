@@ -7,10 +7,12 @@
 //
 //	tinygo build -target wasm -o module.wasm ./
 //
-// The SpacetimeDB host provides three import modules:
-//   - spacetime_10.0  (stable core ABI)
+// The SpacetimeDB host provides five import modules:
+//   - spacetime_10.0  (stable core ABI + volatile schedule)
 //   - spacetime_10.1  (bytes source length query)
 //   - spacetime_10.2  (JWT credential lookup)
+//   - spacetime_10.3  (procedure transactions + HTTP client)
+//   - spacetime_10.4  (point index scan)
 package sys
 
 import "unsafe"
@@ -221,6 +223,10 @@ func rawConsoleTimerEnd(timerId uint32) uint32
 //go:noescape
 func rawIdentity(outPtr unsafe.Pointer)
 
+//go:wasmimport spacetime_10.0 volatile_nonatomic_schedule_immediate
+//go:noescape
+func rawVolatileNonatomicScheduleImmediate(namePtr unsafe.Pointer, nameLen uint32, argsPtr unsafe.Pointer, argsLen uint32)
+
 // ── spacetime_10.1 raw imports ────────────────────────────────────────────────
 
 //go:wasmimport spacetime_10.1 bytes_source_remaining_length
@@ -232,6 +238,38 @@ func rawBytesSourceRemainingLength(source BytesSource, out unsafe.Pointer) int32
 //go:wasmimport spacetime_10.2 get_jwt
 //go:noescape
 func rawGetJwt(connectionIdPtr unsafe.Pointer, bytesSourceIdOut unsafe.Pointer) uint32
+
+// ── spacetime_10.3 raw imports ────────────────────────────────────────────────
+
+//go:wasmimport spacetime_10.3 procedure_start_mut_tx
+//go:noescape
+func rawProcedureStartMutTx(microsOut unsafe.Pointer) uint32
+
+//go:wasmimport spacetime_10.3 procedure_commit_mut_tx
+//go:noescape
+func rawProcedureCommitMutTx() uint32
+
+//go:wasmimport spacetime_10.3 procedure_abort_mut_tx
+//go:noescape
+func rawProcedureAbortMutTx() uint32
+
+//go:wasmimport spacetime_10.3 procedure_http_request
+//go:noescape
+func rawProcedureHttpRequest(
+	requestPtr unsafe.Pointer, requestLen uint32,
+	bodyPtr unsafe.Pointer, bodyLen uint32,
+	out unsafe.Pointer,
+) uint32
+
+// ── spacetime_10.4 raw imports ────────────────────────────────────────────────
+
+//go:wasmimport spacetime_10.4 datastore_index_scan_point_bsatn
+//go:noescape
+func rawDatastoreIndexScanPointBsatn(indexId IndexId, pointPtr unsafe.Pointer, pointLen uint32, out unsafe.Pointer) uint32
+
+//go:wasmimport spacetime_10.4 datastore_delete_by_index_scan_point_bsatn
+//go:noescape
+func rawDatastoreDeleteByIndexScanPointBsatn(indexId IndexId, pointPtr unsafe.Pointer, pointLen uint32, out unsafe.Pointer) uint32
 
 // ── High-level wrappers ───────────────────────────────────────────────────────
 
@@ -487,6 +525,63 @@ func GetJwt(connectionId [16]byte) (BytesSource, error) {
 	var src BytesSource
 	ret := rawGetJwt(unsafe.Pointer(&connectionId[0]), unsafe.Pointer(&src))
 	return src, checkErr(ret)
+}
+
+// VolatileNonatomicScheduleImmediate schedules a reducer call outside the current
+// transaction. The reducer runs immediately after the current transaction commits.
+// name is the reducer name; args is the BSATN-encoded argument payload.
+func VolatileNonatomicScheduleImmediate(name string, args []byte) {
+	nb := []byte(name)
+	argsPtr, argsLen := slicePtr(args)
+	rawVolatileNonatomicScheduleImmediate(unsafe.Pointer(&nb[0]), uint32(len(nb)), argsPtr, argsLen)
+}
+
+// ProcedureStartMutTx begins a mutable transaction within a procedure.
+// Returns the transaction timestamp in microseconds since Unix epoch.
+func ProcedureStartMutTx() (int64, error) {
+	var micros int64
+	ret := rawProcedureStartMutTx(unsafe.Pointer(&micros))
+	return micros, checkErr(ret)
+}
+
+// ProcedureCommitMutTx commits the current mutable procedure transaction.
+func ProcedureCommitMutTx() error {
+	return checkErr(rawProcedureCommitMutTx())
+}
+
+// ProcedureAbortMutTx aborts the current mutable procedure transaction.
+func ProcedureAbortMutTx() error {
+	return checkErr(rawProcedureAbortMutTx())
+}
+
+// ProcedureHttpRequest makes an HTTP request from within a procedure.
+// request is the BSATN-encoded HttpRequest struct; body is the optional body bytes.
+// Returns two BytesSource handles: the first for the BSATN-encoded HttpResponse,
+// the second for the response body bytes.
+func ProcedureHttpRequest(request, body []byte) (BytesSource, BytesSource, error) {
+	var pair [2]BytesSource
+	reqPtr, reqLen := slicePtr(request)
+	bodyPtr, bodyLen := slicePtr(body)
+	ret := rawProcedureHttpRequest(reqPtr, reqLen, bodyPtr, bodyLen, unsafe.Pointer(&pair))
+	return pair[0], pair[1], checkErr(ret)
+}
+
+// IndexScanPointBsatn looks up all rows matching a BSATN-encoded point value on an index.
+// Returns an iterator handle over matching rows.
+func IndexScanPointBsatn(indexId IndexId, point []byte) (RowIter, error) {
+	var iter RowIter
+	pointPtr, pointLen := slicePtr(point)
+	ret := rawDatastoreIndexScanPointBsatn(indexId, pointPtr, pointLen, unsafe.Pointer(&iter))
+	return iter, checkErr(ret)
+}
+
+// DeleteByIndexScanPointBsatn deletes all rows matching a BSATN-encoded point value on an index.
+// Returns the number of rows deleted.
+func DeleteByIndexScanPointBsatn(indexId IndexId, point []byte) (uint32, error) {
+	var deleted uint32
+	pointPtr, pointLen := slicePtr(point)
+	ret := rawDatastoreDeleteByIndexScanPointBsatn(indexId, pointPtr, pointLen, unsafe.Pointer(&deleted))
+	return deleted, checkErr(ret)
 }
 
 // ── Internal helpers ──────────────────────────────────────────────────────────

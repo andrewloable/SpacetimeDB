@@ -162,6 +162,7 @@ func (idx *UniqueIndex[Row, Col]) tid() (sys.TableId, error) {
 }
 
 // Find returns the row whose unique column equals col, or nil if not found.
+// Uses the point index scan (spacetime_10.4) for efficient exact-match lookup.
 func (idx *UniqueIndex[Row, Col]) Find(col Col) (*Row, error) {
 	iid, err := idx.iid()
 	if err != nil {
@@ -169,8 +170,7 @@ func (idx *UniqueIndex[Row, Col]) Find(col Col) (*Row, error) {
 	}
 	w := bsatn.NewWriter()
 	idx.encodeCol(w, col)
-	prefix := w.Bytes()
-	rowIter, err := sys.IndexScanRangeBsatn(iid, prefix, 1, nil, nil)
+	rowIter, err := sys.IndexScanPointBsatn(iid, w.Bytes())
 	if err != nil {
 		return nil, err
 	}
@@ -192,6 +192,7 @@ func (idx *UniqueIndex[Row, Col]) Find(col Col) (*Row, error) {
 
 // Delete removes the row whose unique column equals col.
 // Returns true if a row was found and deleted.
+// Uses the point index scan (spacetime_10.4) for efficient exact-match deletion.
 func (idx *UniqueIndex[Row, Col]) Delete(col Col) (bool, error) {
 	iid, err := idx.iid()
 	if err != nil {
@@ -199,8 +200,7 @@ func (idx *UniqueIndex[Row, Col]) Delete(col Col) (bool, error) {
 	}
 	w := bsatn.NewWriter()
 	idx.encodeCol(w, col)
-	prefix := w.Bytes()
-	deleted, err := sys.DeleteByIndexScanRangeBsatn(iid, prefix, 1, nil, nil)
+	deleted, err := sys.DeleteByIndexScanPointBsatn(iid, w.Bytes())
 	return deleted > 0, err
 }
 
@@ -224,7 +224,43 @@ func (idx *UniqueIndex[Row, Col]) Update(row Row) (Row, error) {
 	return idx.decodeRow(r)
 }
 
-// BTreeIndex provides Filter operations over a btree-indexed column.
+// BoundKind indicates whether a range bound is inclusive, exclusive, or absent.
+type BoundKind uint8
+
+const (
+	BoundIncluded  BoundKind = 0 // value is included in the range
+	BoundExcluded  BoundKind = 1 // value is excluded from the range
+	BoundUnbounded BoundKind = 2 // no bound (open-ended)
+)
+
+// Bound represents one end of a range for BTree index scans.
+// Use [NewBoundIncluded], [NewBoundExcluded], or [NewBoundUnbounded] to construct.
+type Bound[Col any] struct {
+	Kind  BoundKind
+	Value Col // only meaningful when Kind != BoundUnbounded
+}
+
+// NewBoundIncluded returns a Bound that includes the given value (closed bound: <=/>= val).
+func NewBoundIncluded[Col any](v Col) Bound[Col] { return Bound[Col]{Kind: BoundIncluded, Value: v} }
+
+// NewBoundExcluded returns a Bound that excludes the given value (open bound: </>  val).
+func NewBoundExcluded[Col any](v Col) Bound[Col] { return Bound[Col]{Kind: BoundExcluded, Value: v} }
+
+// NewBoundUnbounded returns a Bound with no restriction on that end of the range.
+func NewBoundUnbounded[Col any]() Bound[Col] { return Bound[Col]{Kind: BoundUnbounded} }
+
+// encodeBound encodes a Bound<Col> as BSATN: tag byte + encoded value (if bounded).
+func encodeBound[Col any](b Bound[Col], encodeCol func(*bsatn.Writer, Col)) []byte {
+	if b.Kind == BoundUnbounded {
+		return nil // nil = Unbounded in the ABI
+	}
+	w := bsatn.NewWriter()
+	w.WriteVariantTag(uint8(b.Kind))
+	encodeCol(w, b.Value)
+	return w.Bytes()
+}
+
+// BTreeIndex provides Filter and range-scan operations over a btree-indexed column.
 type BTreeIndex[Row any, Col any] struct {
 	indexName string
 	indexId   sys.IndexId
@@ -271,6 +307,60 @@ func (idx *BTreeIndex[Row, Col]) Filter(col Col) iter.Seq2[Row, error] {
 		idx.encodeCol(w, col)
 		prefix := w.Bytes()
 		rowIter, err := sys.IndexScanRangeBsatn(iid, prefix, 1, nil, nil)
+		if err != nil {
+			var zero Row
+			yield(zero, err)
+			return
+		}
+		iterRows(rowIter, idx.decodeRow, yield)
+	}
+}
+
+// FilterRange returns an iterator over all rows whose indexed column falls within the
+// given range. Use [NewBoundIncluded], [NewBoundExcluded], or [NewBoundUnbounded] to
+// construct the bounds.
+//
+// Example — rows where col is in [lo, hi):
+//
+//	for row, err := range idx.FilterRange(NewBoundIncluded(lo), NewBoundExcluded(hi)) { ... }
+func (idx *BTreeIndex[Row, Col]) FilterRange(rstart, rend Bound[Col]) iter.Seq2[Row, error] {
+	return func(yield func(Row, error) bool) {
+		iid, err := idx.iid()
+		if err != nil {
+			var zero Row
+			yield(zero, err)
+			return
+		}
+		rstartBytes := encodeBound(rstart, idx.encodeCol)
+		rendBytes := encodeBound(rend, idx.encodeCol)
+		rowIter, err := sys.IndexScanRangeBsatn(iid, nil, 0, rstartBytes, rendBytes)
+		if err != nil {
+			var zero Row
+			yield(zero, err)
+			return
+		}
+		iterRows(rowIter, idx.decodeRow, yield)
+	}
+}
+
+// FilterPrefixed performs a composite-prefix scan followed by an optional range bound on
+// the trailing column. prefixBytes is the concatenated BSATN encoding of the leading
+// key columns, prefixElems is the number of those columns, and rstart/rend constrain the
+// next column beyond the prefix.
+//
+// This is the low-level building block for multi-column BTree index queries.
+// stdbgen generates typed wrappers on top of this for composite indexes.
+func (idx *BTreeIndex[Row, Col]) FilterPrefixed(prefixBytes []byte, prefixElems uint32, rstart, rend Bound[Col]) iter.Seq2[Row, error] {
+	return func(yield func(Row, error) bool) {
+		iid, err := idx.iid()
+		if err != nil {
+			var zero Row
+			yield(zero, err)
+			return
+		}
+		rstartBytes := encodeBound(rstart, idx.encodeCol)
+		rendBytes := encodeBound(rend, idx.encodeCol)
+		rowIter, err := sys.IndexScanRangeBsatn(iid, prefixBytes, prefixElems, rstartBytes, rendBytes)
 		if err != nil {
 			var zero Row
 			yield(zero, err)
