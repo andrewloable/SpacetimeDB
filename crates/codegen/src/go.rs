@@ -3,7 +3,6 @@
 //! The generated files use the package name `module_bindings` and import from
 //! `github.com/clockworklabs/spacetimedb-go`.
 
-use std::fmt::Write;
 use std::ops::Deref;
 
 use super::code_indenter::{CodeIndenter, Indenter};
@@ -11,7 +10,6 @@ use super::util::{
     collect_case, is_reducer_invokable, iter_reducers, iter_tables,
     print_auto_generated_file_comment, type_ref_name,
 };
-use crate::util::{iter_procedures, CodegenVisibility};
 use crate::{CodegenOptions, Lang, OutputFile};
 use convert_case::{Case, Casing};
 use spacetimedb_lib::sats::layout::PrimitiveType;
