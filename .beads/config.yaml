@@ -1,0 +1,3 @@
+# Beads Configuration File
+# no-db mode: load from JSONL, no SQLite, write back after each command
+no-db: true
