@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-SpacetimeDB is a relational database with embedded application logic (modules). Clients connect directly to the database via WebSocket/HTTP — there is no separate app server. Modules are uploaded as WebAssembly binaries compiled from Rust, C#, C++, or TypeScript. Each reducer call is a full ACID transaction. Clients subscribe to SQL queries and receive real-time delta updates.
+SpacetimeDB is a relational database with embedded application logic (modules). Clients connect directly to the database via WebSocket/HTTP — there is no separate app server. Modules are uploaded as WebAssembly binaries compiled from Rust, C#, C++, TypeScript, or Go. Each reducer call is a full ACID transaction. Clients subscribe to SQL queries and receive real-time delta updates.
 
 ## Build & Test Commands
 
@@ -114,7 +114,7 @@ Client (SDK) → WebSocket/HTTP → spacetimedb-client-api (Axum)
 
 ### Module Runtimes
 
-- **Wasmtime** — primary runtime for Rust/C#/C++ modules (`crates/core/src/host/wasmtime/`)
+- **Wasmtime** — primary runtime for Rust/C#/C++/Go modules (`crates/core/src/host/wasmtime/`)
 - **V8** — JavaScript/TypeScript module runtime (`crates/core/src/host/v8/`)
 
 ### Client SDKs
@@ -125,6 +125,7 @@ Client (SDK) → WebSocket/HTTP → spacetimedb-client-api (Axum)
 | C# | `sdks/csharp/` |
 | Unreal | `sdks/unreal/` |
 | TypeScript | `crates/bindings-typescript/` |
+| Go | `sdks/go/` |
 
 ### Module Bindings (server-side)
 
@@ -134,6 +135,7 @@ Client (SDK) → WebSocket/HTTP → spacetimedb-client-api (Axum)
 | C# | `crates/bindings-csharp/` |
 | TypeScript | `crates/bindings-typescript/` |
 | C++ | `crates/bindings-cpp/` |
+| Go | `crates/bindings-go/` (compiled via TinyGo to WASM) |
 
 ## Key Design Decisions
 
@@ -147,6 +149,7 @@ Client (SDK) → WebSocket/HTTP → spacetimedb-client-api (Axum)
 - **Rust:** pinned to `1.93.0` via `rust-toolchain.toml`; requires `wasm32-unknown-unknown` target
 - **Node.js:** `>=18.0.0`, package manager `pnpm@9.7.0`
 - **.NET:** version pinned via `global.json`
+- **Go:** `>=1.21`; Go modules compiled to WASM via **TinyGo** (`>=0.33`) using `-target wasm`
 - **Cargo workspace:** 70+ members, `default-members` = CLI + standalone + update
 
 ## Smoketest Notes
