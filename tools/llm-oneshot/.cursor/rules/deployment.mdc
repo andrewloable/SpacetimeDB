@@ -338,20 +338,20 @@ Add to client `package.json`:
 C# modules require WASI-WASM compilation:
 
 ```bash
-# 1. Add global.json for .NET 8
-echo '{"sdk":{"version":"8.0.319","rollForward":"latestFeature"}}' > backend/global.json
+# 1. Add global.json for .NET 10
+echo '{"sdk":{"version":"10.0.100","rollForward":"latestMinor"}}' > backend/global.json
 
 # 2. Build WASM module
 cd backend && dotnet publish -c Release
 
 # 3. Publish to SpacetimeDB
-spacetime publish <MODULE_NAME> -c=always -y --bin-path bin/Release/net8.0/wasi-wasm/AppBundle/backend.wasm
+spacetime publish <MODULE_NAME> -c=always -y --bin-path bin/Release/net10.0/wasi-wasm/AppBundle/backend.wasm
 ```
 
 ### 6.3 Generate C# Bindings
 
 ```bash
-spacetime generate --lang csharp --out-dir client/module_bindings --bin-path backend/bin/Release/net8.0/wasi-wasm/AppBundle/backend.wasm
+spacetime generate --lang csharp --out-dir client/module_bindings --bin-path backend/bin/Release/net10.0/wasi-wasm/AppBundle/backend.wasm
 ```
 
 ### 6.4 MAUI Client Setup
@@ -367,10 +367,10 @@ dotnet add package SpacetimeDB.ClientSDK
 
 ```bash
 # Windows
-dotnet build -f net8.0-windows10.0.19041.0
-dotnet run -f net8.0-windows10.0.19041.0
+dotnet build -f net10.0-windows10.0.19041.0
+dotnet run -f net10.0-windows10.0.19041.0
 
 # macOS
-dotnet build -f net8.0-maccatalyst
-dotnet run -f net8.0-maccatalyst
+dotnet build -f net10.0-maccatalyst
+dotnet run -f net10.0-maccatalyst
 ```

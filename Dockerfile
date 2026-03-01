@@ -36,7 +36,7 @@ RUN if [ "$DOTNET_ARCH" = "amd64" ]; then \
     else \
         echo "Unsupported architecture: $DOTNET_ARCH" && exit 1; \
     fi && \
-    curl -sSL https://dot.net/v1/dotnet-install.sh | bash /dev/stdin --channel 8.0 --install-dir /usr/share/dotnet --architecture $DOTNET_ARCH
+    curl -sSL https://dot.net/v1/dotnet-install.sh | bash /dev/stdin --channel 10.0 --install-dir /usr/share/dotnet --architecture $DOTNET_ARCH
 
 ENV PATH="/usr/share/dotnet:${PATH}"
 

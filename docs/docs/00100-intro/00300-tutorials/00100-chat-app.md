@@ -68,15 +68,15 @@ No additional installation needed - Node.js/npm will handle dependencies.
 </TabItem>
 <TabItem value="csharp" label="C#">
 
-Next we need to [install .NET 8 SDK](https://dotnet.microsoft.com/en-us/download/dotnet/8.0) so that we can build and publish our module.
+Next we need to [install .NET 10 SDK](https://dotnet.microsoft.com/en-us/download/dotnet/10.0) so that we can build and publish our module.
 
-You may already have .NET 8 installed:
+You may already have .NET 10 installed:
 
 ```bash
 dotnet --list-sdks
 ```
 
-.NET 8.0 is the earliest to have the `wasi-experimental` workload that we rely on, but requires manual activation:
+Install the `wasi-experimental` workload required to compile C# to WebAssembly:
 
 ```bash
 dotnet workload install wasi-experimental
@@ -1671,7 +1671,7 @@ Next, we'll show you how to get up and running with a simple SpacetimeDB app wit
 
 We'll implement a command-line client for the module created in our [Rust](../00200-quickstarts/00500-rust.md) or [C# Module](../00200-quickstarts/00600-c-sharp.md) Quickstart guides. Ensure you followed one of these guides before continuing.
 
-If you've not already installed .NET 8, the [C# Module](../00200-quickstarts/00600-c-sharp.md) Quickstart guide will show you how to install it, which we will need to run the client.
+If you've not already installed .NET 10, the [C# Module](../00200-quickstarts/00600-c-sharp.md) Quickstart guide will show you how to install it, which we will need to run the client.
 
 ### Project structure
 
@@ -1698,7 +1698,7 @@ dotnet add package SpacetimeDB.ClientSDK
 ```
 
 Note:
-For developers with multiple .NET version installed, you may need to update the `.csproj` file at the root of your client project, to specify .NET 8.0 in the `<TargetFramework>` element like this:`<TargetFramework>net8.0</TargetFramework>`
+For developers with multiple .NET version installed, you may need to update the `.csproj` file at the root of your client project, to specify .NET 10.0 in the `<TargetFramework>` element like this:`<TargetFramework>net10.0</TargetFramework>`
 For developers creating both a C# server and a C# client, you will need to update the `.csproj` file at the root of your server project, to ignore the server code in the `spacetimedb` directory by adding the following:
 ```xml
   <ItemGroup>
@@ -1711,7 +1711,7 @@ Or simply replace the contents of your client's `.csproj` file with:
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <CheckEolTargetFramework>false</CheckEolTargetFramework>
     <ImplicitUsings>disable</ImplicitUsings>
     <Nullable>enable</Nullable>

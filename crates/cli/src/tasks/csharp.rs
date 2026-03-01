@@ -25,13 +25,13 @@ pub(crate) fn build_csharp(project_path: &Path, build_debug: bool) -> anyhow::Re
         Ok(workloads) if workloads.contains("wasi-experimental") => {}
         Ok(_) => {
             // If wasi-experimental is not found, first check if we're running
-            // on .NET SDK 8.0. We can't even install that workload on older
-            // versions, and we don't support .NET 9.0 yet, so this helps to
-            // provide a nicer message than "Workload ID wasi-experimental is not recognized.".
+            // on .NET SDK 10.0. We can't even install that workload on older
+            // versions, so this helps to provide a nicer message than
+            // "Workload ID wasi-experimental is not recognized.".
             let version = dotnet!("--version").read().unwrap_or_default();
-            if parse_major_version(&version) != Some(8) {
+            if parse_major_version(&version) != Some(10) {
                 anyhow::bail!(concat!(
-                    ".NET SDK 8.0 is required, but found {version}.\n",
+                    ".NET SDK 10.0 is required, but found {version}.\n",
                     "If you have multiple versions of .NET SDK installed, configure your project using https://learn.microsoft.com/en-us/dotnet/core/tools/global-json."
                 ));
             }
@@ -53,7 +53,7 @@ pub(crate) fn build_csharp(project_path: &Path, build_debug: bool) -> anyhow::Re
             ))?;
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            anyhow::bail!("dotnet not found in PATH. Please install .NET SDK 8.0.")
+            anyhow::bail!("dotnet not found in PATH. Please install .NET SDK 10.0.")
         }
         Err(error) => anyhow::bail!("{error}"),
     };
@@ -87,12 +87,12 @@ pub(crate) fn build_csharp(project_path: &Path, build_debug: bool) -> anyhow::Re
     if bad_output_paths.iter().any(|p| p.exists()) {
         anyhow::bail!(concat!(
             "Looks like your project is using the deprecated .NET 7.0 WebAssembly bindings.\n",
-            "Please migrate your project to the new .NET 8.0 template and delete the folders: bin, bin~, obj, obj~"
+            "Please migrate your project to the new .NET 10.0 template and delete the folders: bin, bin~, obj, obj~"
         ));
     }
     let possible_output_paths = [
-        project_path.join(format!("bin/{config_name}/net8.0/wasi-wasm/{subdir}/StdbModule.wasm")),
-        project_path.join(format!("bin~/{config_name}/net8.0/wasi-wasm/{subdir}/StdbModule.wasm")),
+        project_path.join(format!("bin/{config_name}/net10.0/wasi-wasm/{subdir}/StdbModule.wasm")),
+        project_path.join(format!("bin~/{config_name}/net10.0/wasi-wasm/{subdir}/StdbModule.wasm")),
     ];
     if possible_output_paths.iter().all(|p| p.exists()) {
         anyhow::bail!(concat!(

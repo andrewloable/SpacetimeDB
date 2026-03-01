@@ -13,7 +13,7 @@ Get a SpacetimeDB C# app running in under 5 minutes.
 
 ## Prerequisites
 
-- [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0) installed
+- [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) installed
 - [SpacetimeDB CLI](https://spacetimedb.com/install) installed
 
 <InstallCardLink />

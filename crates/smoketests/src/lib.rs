@@ -149,6 +149,19 @@ macro_rules! require_emscripten {
     };
 }
 
+#[macro_export]
+macro_rules! require_tinygo {
+    () => {
+        if !$crate::have_tinygo() {
+            #[allow(clippy::disallowed_macros)]
+            {
+                eprintln!("Skipping test: tinygo not found in PATH");
+            }
+            return;
+        }
+    };
+}
+
 /// Helper macro for timing operations and printing results
 macro_rules! timed {
     ($label:expr, $expr:expr) => {{
@@ -350,6 +363,12 @@ pub fn build_typescript_sdk() -> Result<()> {
 pub fn have_emscripten() -> bool {
     static HAVE_EMSCRIPTEN: OnceLock<bool> = OnceLock::new();
     *HAVE_EMSCRIPTEN.get_or_init(|| which("emcc").is_ok() || which("emcc.bat").is_ok())
+}
+
+/// Returns true if TinyGo is available on the system.
+pub fn have_tinygo() -> bool {
+    static HAVE_TINYGO: OnceLock<bool> = OnceLock::new();
+    *HAVE_TINYGO.get_or_init(|| which("tinygo").is_ok() || which("tinygo.exe").is_ok())
 }
 
 /// A smoketest instance that manages a SpacetimeDB server and module project.
@@ -873,6 +892,75 @@ impl Smoketest {
         self.database_identity = Some(identity.clone());
 
         Ok(identity)
+    }
+
+    /// Initializes, writes, and publishes a Go module from source.
+    ///
+    /// The module is initialized at `<test_project_dir>/<project_dir_name>/spacetimedb`.
+    /// Requires TinyGo to be installed and available on PATH.
+    /// On success this updates `self.database_identity`.
+    pub fn publish_go_module_source(
+        &mut self,
+        project_dir_name: &str,
+        module_name: &str,
+        module_source: &str,
+    ) -> Result<String> {
+        let workspace = workspace_root();
+        let module_root = self.project_dir.path().join(project_dir_name);
+        let module_root_str = module_root.to_str().context("Invalid Go project path")?;
+        self.spacetime(&[
+            "init",
+            "--non-interactive",
+            "--lang",
+            "go",
+            "--project-path",
+            module_root_str,
+            module_name,
+        ])?;
+
+        let module_path = module_root.join("spacetimedb");
+
+        // Write module source (overrides the template default).
+        fs::write(module_path.join("main.go"), module_source)
+            .context("Failed to write Go module source")?;
+
+        // Add local replace directives so TinyGo can resolve the SDK packages.
+        let go_mod_path = module_path.join("go.mod");
+        let go_mod = fs::read_to_string(&go_mod_path).context("Failed to read go.mod")?;
+        let server_sdk_path = workspace.join("crates/bindings-go");
+        let client_sdk_path = workspace.join("sdks/go");
+        let updated_go_mod = format!(
+            "{}\nreplace github.com/clockworklabs/spacetimedb-go-server => {}\nreplace github.com/clockworklabs/spacetimedb-go => {}\n",
+            go_mod,
+            server_sdk_path.display(),
+            client_sdk_path.display()
+        );
+        fs::write(&go_mod_path, updated_go_mod).context("Failed to write updated go.mod")?;
+
+        // Compile to WASM with TinyGo.
+        let wasm_path = module_path.join("module.wasm");
+        let output = Command::new("tinygo")
+            .args([
+                "build",
+                "-target",
+                "wasm",
+                "-o",
+                wasm_path.to_str().unwrap(),
+                "./",
+            ])
+            .current_dir(&module_path)
+            .output()
+            .context("Failed to run tinygo build")?;
+        if !output.status.success() {
+            bail!(
+                "tinygo build failed:\nstdout: {}\nstderr: {}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+
+        self.use_precompiled_wasm_path(&wasm_path)?;
+        self.publish_module_named(module_name, true)
     }
 
     /// Writes new module code to the project.

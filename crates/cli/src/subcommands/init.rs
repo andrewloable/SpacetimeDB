@@ -62,6 +62,7 @@ pub enum ServerLanguage {
     Csharp,
     TypeScript,
     Cpp,
+    Go,
 }
 
 impl ServerLanguage {
@@ -71,6 +72,7 @@ impl ServerLanguage {
             ServerLanguage::Csharp => "csharp",
             ServerLanguage::TypeScript => "typescript",
             ServerLanguage::Cpp => "cpp",
+            ServerLanguage::Go => "go",
         }
     }
 
@@ -80,6 +82,7 @@ impl ServerLanguage {
             "csharp" | "c#" => Ok(Some(ServerLanguage::Csharp)),
             "typescript" => Ok(Some(ServerLanguage::TypeScript)),
             "cpp" | "c++" | "cxx" => Ok(Some(ServerLanguage::Cpp)),
+            "go" | "golang" => Ok(Some(ServerLanguage::Go)),
             _ => Err(anyhow!("Unknown server language: {}", s)),
         }
     }
@@ -851,7 +854,7 @@ async fn get_template_config_interactive(
         }
     } else if client_selection == none_index {
         // Ask for server language only
-        let server_lang_choices = vec!["Rust", "C#", "TypeScript"];
+        let server_lang_choices = vec!["Rust", "C#", "TypeScript", "Go"];
         let server_selection = Select::with_theme(&theme)
             .with_prompt("Select server language")
             .items(&server_lang_choices)
@@ -862,6 +865,7 @@ async fn get_template_config_interactive(
             0 => Some(ServerLanguage::Rust),
             1 => Some(ServerLanguage::Csharp),
             2 => Some(ServerLanguage::TypeScript),
+            3 => Some(ServerLanguage::Go),
             _ => unreachable!("Invalid server language selection"),
         };
 
@@ -1354,8 +1358,8 @@ fn init_builtin(config: &TemplateConfig, project_path: &Path, is_server_only: bo
         Some(ServerLanguage::Csharp) => {
             update_csproj_server_to_nuget(&server_dir)?;
         }
-        Some(ServerLanguage::Cpp) => {
-            // No name update needed for C++ at the moment
+        Some(ServerLanguage::Cpp) | Some(ServerLanguage::Go) => {
+            // No name update needed for C++ or Go at the moment
         }
         None => {}
     }
@@ -1419,6 +1423,11 @@ fn init_empty(config: &TemplateConfig, project_path: &Path) -> anyhow::Result<()
             let server_dir = project_path.join("spacetimedb");
             init_empty_cpp_server(&server_dir, &config.project_name)?;
         }
+        Some(ServerLanguage::Go) => {
+            println!("Setting up Go server...");
+            let server_dir = project_path.join("spacetimedb");
+            init_empty_go_server(&server_dir, &config.project_name)?;
+        }
         None => {}
     }
 
@@ -1443,6 +1452,10 @@ fn init_empty_typescript_server(server_dir: &Path, project_name: &str) -> anyhow
 
 fn init_empty_cpp_server(server_dir: &Path, _project_name: &str) -> anyhow::Result<()> {
     init_cpp_project(server_dir)
+}
+
+fn init_empty_go_server(server_dir: &Path, _project_name: &str) -> anyhow::Result<()> {
+    init_go_project(server_dir)
 }
 
 fn print_next_steps(config: &TemplateConfig, _project_path: &Path) -> anyhow::Result<()> {
@@ -1742,6 +1755,30 @@ pub fn init_cpp_project(project_path: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
+pub fn init_go_project(project_path: &Path) -> anyhow::Result<()> {
+    let export_files = vec![
+        (
+            include_str!("../../../../templates/basic-go/spacetimedb/go.mod"),
+            "go.mod",
+        ),
+        (
+            include_str!("../../../../templates/basic-go/spacetimedb/main.go"),
+            "main.go",
+        ),
+    ];
+
+    for data_file in export_files {
+        let path = project_path.join(data_file.1);
+        create_directory(path.parent().unwrap())?;
+        std::fs::write(path, data_file.0)?;
+    }
+
+    check_for_tinygo();
+    check_for_git();
+
+    Ok(())
+}
+
 pub async fn exec_init_rust(args: &ArgMatches) -> anyhow::Result<()> {
     let project_path = args.get_one::<PathBuf>("project-path").unwrap();
     init_rust_project(project_path)?;
@@ -1976,6 +2013,25 @@ fn check_for_emscripten_and_cmake() -> bool {
         println!("{}", "Install CMake from: https://cmake.org/download/".yellow());
     }
 
+    false
+}
+
+fn check_for_tinygo() -> bool {
+    #[cfg(windows)]
+    let found = find_executable("tinygo.exe").is_some();
+    #[cfg(not(windows))]
+    let found = find_executable("tinygo").is_some();
+
+    if found {
+        return true;
+    }
+    println!(
+        "{}",
+        "Warning: You have created a Go project, but TinyGo was not found in PATH.\n\
+         Install TinyGo from: https://tinygo.org/getting-started/install/\n\
+         Compile your module with: tinygo build -target wasm -o module.wasm ./\n"
+            .yellow()
+    );
     false
 }
 
