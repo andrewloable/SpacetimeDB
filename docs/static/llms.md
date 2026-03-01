@@ -184,7 +184,7 @@ _ Choosing `n` proceeds without a global login for this operation. The CLI will 
     spacetime build --module-path my_server_module
     ```
     :::note C# Build Prerequisite (.NET SDK)
-    Building a **C# module** (on any platform: Windows, macOS, Linux) requires the .NET SDK to be installed. If the build fails with an error mentioning `dotnet workload list` or `No .NET SDKs were found`, you need to install the SDK first. Download and install the **.NET 8 SDK** specifically from the official Microsoft website: [https://dotnet.microsoft.com/download](https://dotnet.microsoft.com/download). Newer versions (like .NET 9) are not currently supported for building SpacetimeDB modules, although they can be installed alongside .NET 8 without conflicting.
+    Building a **C# module** (on any platform: Windows, macOS, Linux) requires the .NET SDK to be installed. If the build fails with an error mentioning `dotnet workload list` or `No .NET SDKs were found`, you need to install the SDK first. Download and install the **.NET 10 SDK** from the official Microsoft website: [https://dotnet.microsoft.com/download](https://dotnet.microsoft.com/download).
     :::
 5.  **Publish Module:** Deploy your compiled module to a SpacetimeDB instance (either a local one started with `spacetime start` or the managed Maincloud). Publishing creates or updates a database associated with your module.
     - Providing a `[name|identity]` for the database is **optional**. If omitted, a nameless database will be created and assigned a unique `Identity` automatically. If providing a _name_, it must match the regex `^[a-z0-9]+(-[a-z0-9]+)*$`.

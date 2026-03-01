@@ -6,7 +6,7 @@
   </PropertyGroup>
 
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <RootNamespace>SpacetimeDB.Codegen.Tests</RootNamespace>
     <DefaultItemExcludes>$(DefaultItemExcludes);fixtures/**/*</DefaultItemExcludes>
   </PropertyGroup>

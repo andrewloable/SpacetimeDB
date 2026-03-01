@@ -96,10 +96,10 @@ ctx.Db.User.Insert(...); // Accessor is "user", so property is ctx.Db.user
 ### 9. Missing RuntimeIdentifier for WASM Build
 ```xml
 <!-- ❌ WRONG — won't produce WASM output -->
-<TargetFramework>net8.0</TargetFramework>
+<TargetFramework>net10.0</TargetFramework>
 
 <!-- ✅ CORRECT — required for spacetime publish -->
-<TargetFramework>net8.0</TargetFramework>
+<TargetFramework>net10.0</TargetFramework>
 <RuntimeIdentifier>wasi-wasm</RuntimeIdentifier>
 ```
 
@@ -167,7 +167,7 @@ public partial record Shape : TaggedEnum<(Circle Circle, Rectangle Rectangle)> {
 | `Optional<string>` | `string?` | Type not found |
 | `ctx.Db.Table.Get(id)` | `ctx.Db.Table.Id.Find(id)` | Method not found |
 | Wrong .csproj name | `StdbModule.csproj` | Publish fails silently |
-| .NET 9 SDK | .NET 8 SDK only | WASI compilation fails |
+| Old .NET SDK | .NET 10 SDK required | WASI compilation fails |
 | Missing WASI workload | `dotnet workload install wasi-experimental` | Build fails |
 | `[Procedure]` attribute | Reducers only | Procedures not supported in C# |
 | Missing `Public = true` | Add to `[Table]` attribute | Clients can't subscribe |
@@ -678,7 +678,7 @@ var dateTime = DateTimeOffset.FromUnixTimeMilliseconds(
 ```xml
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <RuntimeIdentifier>wasi-wasm</RuntimeIdentifier>
     <OutputType>Exe</OutputType>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -693,8 +693,8 @@ var dateTime = DateTimeOffset.FromUnixTimeMilliseconds(
 ### Prerequisites
 
 ```bash
-# Install .NET 8 SDK (required, not .NET 9)
-# Download from https://dotnet.microsoft.com/download/dotnet/8.0
+# Install .NET 10 SDK (required)
+# Download from https://dotnet.microsoft.com/download/dotnet/10.0
 
 # Install WASI workload
 dotnet workload install wasi-experimental
@@ -730,7 +730,7 @@ spacetime logs <module-name>
 1. **Tables and Module MUST be `partial`** — required for code generation
 2. **Use PascalCase for table access** — `ctx.Db.TableName`, not `ctx.Db.tableName`
 3. **Project file MUST be named `StdbModule.csproj`** — CLI requirement
-4. **Requires .NET 8 SDK** — .NET 9 and newer not yet supported
+4. **Requires .NET 10 SDK** — install from https://dotnet.microsoft.com/download/dotnet/10.0
 5. **Install WASI workload** — `dotnet workload install wasi-experimental`
 6. **C# does NOT support procedures** — use reducers only
 7. **Reducers must be deterministic** — no filesystem, network, timers, or `Random`
