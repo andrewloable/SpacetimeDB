@@ -9,12 +9,15 @@
 package spacetimedb
 
 import (
+	"math/rand"
+
 	"github.com/clockworklabs/spacetimedb-go-server/sys"
 	"github.com/clockworklabs/spacetimedb-go/types"
 )
 
 // ReducerContext is passed to every reducer function.
-// It provides the caller's identity, optional connection ID, and the call timestamp.
+// It provides the caller's identity, optional connection ID, the call timestamp,
+// and a deterministic random number generator seeded from the timestamp.
 // Table accessors are provided by the generated module bindings via package-level variables.
 type ReducerContext struct {
 	// Sender is the identity of the client or scheduled-reducer that called this reducer.
@@ -25,6 +28,15 @@ type ReducerContext struct {
 
 	// Timestamp is the time at which this reducer was invoked.
 	Timestamp types.Timestamp
+
+	// Rng is a deterministic pseudo-random generator seeded from the call timestamp.
+	// All reducers with the same timestamp produce the same random sequence,
+	// ensuring determinism across replicas.
+	Rng *rand.Rand
+
+	// Auth provides access to the JWT claims for the current call.
+	// Use Auth.GetJwt() to load claims lazily. IsInternal is true for scheduled reducers.
+	Auth AuthCtx
 }
 
 // LogLevel controls the severity of a log message.

@@ -79,3 +79,47 @@ func ReadTimeDuration(r *bsatn.Reader) (TimeDuration, error) {
 	}
 	return TimeDuration{Nanoseconds: ns}, nil
 }
+
+// ScheduleAt represents when a scheduled reducer should execute.
+// Wire format: 1-byte variant tag followed by an i64 payload.
+//   - tag 0 (Interval): i64 TimeDuration value (nanoseconds)
+//   - tag 1 (Time): i64 Timestamp value (microseconds since Unix epoch)
+type ScheduleAt struct {
+	// IsTime is true when this is a specific time, false when it is an interval.
+	IsTime bool
+	// Micros holds the i64 payload: nanoseconds for Interval, microseconds for Time.
+	Micros int64
+}
+
+// ScheduleAtInterval creates a ScheduleAt that fires after the given duration.
+func ScheduleAtInterval(d TimeDuration) ScheduleAt {
+	return ScheduleAt{IsTime: false, Micros: d.Nanoseconds}
+}
+
+// ScheduleAtTime creates a ScheduleAt that fires at the given timestamp.
+func ScheduleAtTime(t Timestamp) ScheduleAt {
+	return ScheduleAt{IsTime: true, Micros: t.Microseconds}
+}
+
+// WriteBsatn encodes the ScheduleAt as a BSATN sum value.
+func (s ScheduleAt) WriteBsatn(w *bsatn.Writer) {
+	if s.IsTime {
+		w.WriteVariantTag(1)
+	} else {
+		w.WriteVariantTag(0)
+	}
+	w.WriteI64(s.Micros)
+}
+
+// ReadScheduleAt decodes a ScheduleAt from BSATN.
+func ReadScheduleAt(r *bsatn.Reader) (ScheduleAt, error) {
+	tag, err := r.ReadVariantTag()
+	if err != nil {
+		return ScheduleAt{}, fmt.Errorf("schedule_at: %w", err)
+	}
+	micros, err := r.ReadI64()
+	if err != nil {
+		return ScheduleAt{}, fmt.Errorf("schedule_at payload: %w", err)
+	}
+	return ScheduleAt{IsTime: tag == 1, Micros: micros}, nil
+}

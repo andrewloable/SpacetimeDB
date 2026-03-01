@@ -112,6 +112,38 @@ var (
 	AlgebraicF64    = F64AlgebraicType{}
 )
 
+// Special SpacetimeDB types recognized by the host.
+// These are product/sum types with specific field names that give them semantic meaning.
+var (
+	// AlgebraicTimestamp is the AlgebraicType for a point in time (i64 microseconds since Unix epoch).
+	AlgebraicTimestamp = ProductType{
+		Elements: []ProductTypeElement{
+			{Name: strPtr("__timestamp_micros_since_unix_epoch__"), Type: AlgebraicI64},
+		},
+	}
+
+	// AlgebraicTimeDuration is the AlgebraicType for a time span (i64 microseconds).
+	AlgebraicTimeDuration = ProductType{
+		Elements: []ProductTypeElement{
+			{Name: strPtr("__time_duration_micros__"), Type: AlgebraicI64},
+		},
+	}
+
+	// AlgebraicScheduleAt is the AlgebraicType for a scheduled reducer's trigger time.
+	// It is a sum of Interval (TimeDuration) and Time (Timestamp).
+	AlgebraicScheduleAt = SumType{
+		Variants: []SumTypeVariant{
+			{Name: strPtr("Interval"), Type: AlgebraicTimeDuration},
+			{Name: strPtr("Time"), Type: AlgebraicTimestamp},
+		},
+	}
+
+	// AlgebraicBytes is the AlgebraicType for a byte array (Array<U8>).
+	AlgebraicBytes = ArrayType{ElemType: AlgebraicU8}
+)
+
+func strPtr(s string) *string { return &s }
+
 // --- Typespace ---
 
 // Typespace holds a list of named algebraic types, indexed by AlgebraicTypeRef.

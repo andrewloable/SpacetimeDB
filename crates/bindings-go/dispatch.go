@@ -4,6 +4,8 @@ package spacetimedb
 
 import (
 	"encoding/binary"
+	"fmt"
+	"math/rand"
 
 	"github.com/clockworklabs/spacetimedb-go/types"
 	"github.com/clockworklabs/spacetimedb-go-server/sys"
@@ -82,10 +84,22 @@ func callReducer(
 		Sender:       sender,
 		ConnectionId: connID,
 		Timestamp:    types.Timestamp{Microseconds: int64(timestamp)},
+		Rng:          rand.New(rand.NewSource(int64(timestamp))),
+		Auth:         newAuthCtxFromConnection(connID, sender),
 	}
 
-	// Execute the reducer. Any panic propagates to the host, which rolls back
-	// the transaction and reports an error.
-	reducerHandlers[id](ctx, args)
-	return 0
+	// Execute the reducer with panic recovery.
+	// On panic, write the error message to errSink and return HOST_CALL_FAILURE (1).
+	var result int32
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				msg := fmt.Sprintf("%v", r)
+				_ = sys.WriteBytesToSink(errSink, []byte(msg))
+				result = 1
+			}
+		}()
+		reducerHandlers[id](ctx, args)
+	}()
+	return result
 }
