@@ -175,6 +175,7 @@ var (
 	lifecycleRegistry      []LifecycleDef
 	scheduleRegistry       []ScheduleDef
 	typeRegistry           []TypeDef
+	typespaceExtRegistry   []types.AlgebraicType
 	rlsRegistry            []RLSDef
 	explicitNameRegistry   []ExplicitNameEntry
 	caseConversionPolicy   *CaseConversionPolicy
@@ -227,6 +228,16 @@ func RegisterTypeDef(def TypeDef) {
 	typeRegistry = append(typeRegistry, def)
 }
 
+// RegisterTypespaceType appends an AlgebraicType to the module's typespace.
+// The returned index can be used as the TypeRef in a TypeDef or as a types.RefType{Ref: n}
+// in column/parameter definitions that reference this type.
+// Indices start after the automatically-added table row types (0..len(tables)-1).
+func RegisterTypespaceType(at types.AlgebraicType) uint32 {
+	idx := uint32(len(typespaceExtRegistry))
+	typespaceExtRegistry = append(typespaceExtRegistry, at)
+	return idx
+}
+
 // ── WASM export ───────────────────────────────────────────────────────────────
 
 // __describe_module__ is called by the SpacetimeDB host to obtain the module's
@@ -245,16 +256,18 @@ func describeModule(sink sys.BytesSink) {
 func buildModuleDefBSATN() []byte {
 	w := bsatn.NewWriter()
 
-	// Build the typespace: one ProductType per registered table.
-	typespaceTypes := make([]types.AlgebraicType, len(tableRegistry))
-	for i, t := range tableRegistry {
+	// Build the typespace: one ProductType per registered table, then any explicitly
+	// registered custom types from RegisterTypespaceType.
+	typespaceTypes := make([]types.AlgebraicType, 0, len(tableRegistry)+len(typespaceExtRegistry))
+	for _, t := range tableRegistry {
 		elems := make([]types.ProductTypeElement, len(t.Columns))
 		for j, col := range t.Columns {
 			name := col.Name
 			elems[j] = types.ProductTypeElement{Name: &name, Type: col.Type}
 		}
-		typespaceTypes[i] = types.ProductType{Elements: elems}
+		typespaceTypes = append(typespaceTypes, types.ProductType{Elements: elems})
 	}
+	typespaceTypes = append(typespaceTypes, typespaceExtRegistry...)
 
 	// Collect internal function names (lifecycle + schedule reducers)
 	// and force their visibility to Private, matching the C# SDK behavior.
