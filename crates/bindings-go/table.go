@@ -260,6 +260,13 @@ func encodeBound[Col any](b Bound[Col], encodeCol func(*bsatn.Writer, Col)) []by
 	return w.Bytes()
 }
 
+// EncodeBound is the exported version of encodeBound. Generated multi-column
+// BTree prefix queries use this to encode bounds for a trailing column whose
+// type differs from the first (Col) column.
+func EncodeBound[Col any](b Bound[Col], encodeCol func(*bsatn.Writer, Col)) []byte {
+	return encodeBound(b, encodeCol)
+}
+
 // BTreeIndex provides Filter and range-scan operations over a btree-indexed column.
 type BTreeIndex[Row any, Col any] struct {
 	indexName string
@@ -360,6 +367,29 @@ func (idx *BTreeIndex[Row, Col]) FilterPrefixed(prefixBytes []byte, prefixElems 
 		}
 		rstartBytes := encodeBound(rstart, idx.encodeCol)
 		rendBytes := encodeBound(rend, idx.encodeCol)
+		rowIter, err := sys.IndexScanRangeBsatn(iid, prefixBytes, prefixElems, rstartBytes, rendBytes)
+		if err != nil {
+			var zero Row
+			yield(zero, err)
+			return
+		}
+		iterRows(rowIter, idx.decodeRow, yield)
+	}
+}
+
+// FilterPrefixedRaw is like FilterPrefixed but accepts pre-encoded BSATN bound bytes
+// instead of typed Bound[Col] values. This allows multi-column composite indexes where
+// the trailing column type differs from Col (the first-column type parameter).
+//
+// Pass nil for rstartBytes/rendBytes for unbounded ends.
+func (idx *BTreeIndex[Row, Col]) FilterPrefixedRaw(prefixBytes []byte, prefixElems uint32, rstartBytes, rendBytes []byte) iter.Seq2[Row, error] {
+	return func(yield func(Row, error) bool) {
+		iid, err := idx.iid()
+		if err != nil {
+			var zero Row
+			yield(zero, err)
+			return
+		}
 		rowIter, err := sys.IndexScanRangeBsatn(iid, prefixBytes, prefixElems, rstartBytes, rendBytes)
 		if err != nil {
 			var zero Row
