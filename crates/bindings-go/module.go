@@ -21,10 +21,14 @@ func describeModule(sink sys.BytesSink) {
 
 // ── BSATN serialization ───────────────────────────────────────────────────────
 
-// buildModuleDefBSATN returns the BSATN encoding of RawModuleDefV10 built from
-// the current registries.
+// buildModuleDefBSATN returns the BSATN encoding of RawModuleDef (the outer enum)
+// wrapping a RawModuleDefV10 built from the current registries.
+// The host deserializes this as RawModuleDef, so the V10 variant tag (2) must come first.
 func buildModuleDefBSATN() []byte {
 	w := bsatn.NewWriter()
+
+	// Outer enum: RawModuleDef::V10 = variant tag 2
+	w.WriteVariantTag(2)
 
 	// Build the typespace: one ProductType per registered table, then any explicitly
 	// registered custom types from RegisterTypespaceType.

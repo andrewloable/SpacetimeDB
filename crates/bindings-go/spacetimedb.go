@@ -5,7 +5,7 @@
 //
 // Compile a module with:
 //
-//	tinygo build -target wasm -o module.wasm ./
+//	tinygo build -target wasm-unknown -buildmode=c-shared -o module.wasm ./
 package spacetimedb
 
 import (
