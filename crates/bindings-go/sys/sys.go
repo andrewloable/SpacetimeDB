@@ -195,15 +195,21 @@ func WriteBytesToSink(sink BytesSink, data []byte) error {
 	if len(data) == 0 {
 		return nil
 	}
-	offset := 0
-	for offset < len(data) {
-		chunk := data[offset:]
-		n := uint32(len(chunk))
-		ret := rawBytesSinkWrite(sink, unsafe.Pointer(&chunk[0]), unsafe.Pointer(&n))
+	off := uint32(0)
+	total := uint32(len(data))
+	for off < total {
+		chunk := total - off
+		if chunk > 256 {
+			chunk = 256
+		}
+		buf := make([]byte, chunk)
+		copy(buf, data[off:off+chunk])
+		n := chunk
+		ret := rawBytesSinkWrite(sink, unsafe.Pointer(&buf[0]), unsafe.Pointer(&n))
 		if err := checkErr(ret); err != nil {
 			return err
 		}
-		offset += int(n)
+		off += n
 	}
 	return nil
 }
