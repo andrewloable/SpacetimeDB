@@ -1,0 +1,4 @@
+{
+  "description": "A basic Go server template with only stubs for code",
+  "server_lang": "go"
+}

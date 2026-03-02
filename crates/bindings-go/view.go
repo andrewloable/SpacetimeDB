@@ -4,6 +4,7 @@ package spacetimedb
 
 import (
 	"encoding/binary"
+	"fmt"
 
 	"github.com/clockworklabs/spacetimedb-go/bsatn"
 	"github.com/clockworklabs/spacetimedb-go/types"
@@ -94,8 +95,18 @@ func callView(
 	sender := types.Identity(senderBytes)
 
 	writeViewResultHeaderRowData(rows)
-	viewHandlers[id](sender, nil, args, rows)
-	return 2 // ABI version identifier
+	var result int16 = 2 // ABI version identifier
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				msg := fmt.Sprintf("%v", r)
+				_ = sys.WriteBytesToSink(rows, []byte(msg))
+				result = 1
+			}
+		}()
+		viewHandlers[id](sender, nil, args, rows)
+	}()
+	return result
 }
 
 // __call_view_anon__ is invoked by the SpacetimeDB host to execute an anonymous view.
@@ -110,8 +121,18 @@ func callViewAnon(
 		return -1
 	}
 	writeViewResultHeaderRowData(rows)
-	viewAnonHandlers[id](args, rows)
-	return 2 // ABI version identifier
+	var result int16 = 2 // ABI version identifier
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				msg := fmt.Sprintf("%v", r)
+				_ = sys.WriteBytesToSink(rows, []byte(msg))
+				result = 1
+			}
+		}()
+		viewAnonHandlers[id](args, rows)
+	}()
+	return result
 }
 
 // ── View section in module def ────────────────────────────────────────────────
