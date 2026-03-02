@@ -32,8 +32,74 @@
 
   <ItemGroup Condition="'$(EXPERIMENTAL_WASM_AOT)' != '1'">
     <NativeFileReference Include="$(MSBuildThisFileDirectory)..\bindings.c" />
-    <_WasmNativeFileForLinking Include="@(NativeFileReference)" />
   </ItemGroup>
+
+  <!-- For .NET 10+ (wasip2 target), define DOTNET_WASI_P2 to use mono_runtime_invoke
+       instead of the removed mono_wasm_invoke_method_ref. -->
+  <PropertyGroup Condition="'$(EXPERIMENTAL_WASM_AOT)' != '1' and $([MSBuild]::VersionGreaterThanOrEquals('$(TargetFrameworkVersion)', '10.0'))">
+    <WasiClangFlags>$(WasiClangFlags) -DDOTNET_WASI_P2</WasiClangFlags>
+  </PropertyGroup>
+
+  <!-- Add Mono include path for .NET 10+ so bindings.c can find mono/metadata headers.
+       Must run as a target because MicrosoftNetCoreAppRuntimePackRidNativeDir is not
+       available during static property evaluation. -->
+  <Target Name="AddMonoIncludePath" BeforeTargets="_PrepareForWasiBuildNative" Condition="'$(EXPERIMENTAL_WASM_AOT)' != '1' and $([MSBuild]::VersionGreaterThanOrEquals('$(TargetFrameworkVersion)', '10.0'))">
+    <PropertyGroup>
+      <WasiClangFlags>$(WasiClangFlags) -I$(MicrosoftNetCoreAppRuntimePackRidNativeDir)include/mono-2.0</WasiClangFlags>
+    </PropertyGroup>
+    <!-- Add stdb_mono_invoke.c so it's compiled and linked BEFORE static archives.
+         This forces mono_runtime_invoke to be extracted from libmonosgen-2.0.a. -->
+    <ItemGroup>
+      <_WasmRuntimePackSrcFile Include="$(MSBuildThisFileDirectory)..\stdb_mono_invoke.c"
+                               ObjectFile="$(_WasmIntermediateOutputPath)stdb_mono_invoke.o" />
+    </ItemGroup>
+  </Target>
+
+  <!-- Override wasip2 to wasip1 for SpacetimeDB modules.
+       SpacetimeDB host expects a core WASM module, not a WASM component.
+       Must run after _PrepareForWasiBuildNative populates the flag items. -->
+  <Target Name="OverrideWasiP2ToP1" AfterTargets="_PrepareForWasiBuildNative" BeforeTargets="_WasiWriteRspForLinking" Condition="'$(EXPERIMENTAL_WASM_AOT)' != '1' and $([MSBuild]::VersionGreaterThanOrEquals('$(TargetFrameworkVersion)', '10.0'))">
+    <ItemGroup>
+      <!-- Switch from wasip2 to wasip1 target -->
+      <_WasiClangCommonFlags Remove="--target=wasm32-unknown-wasip2" />
+      <_WasiClangCommonFlags Include="--target=wasm32-wasi" />
+      <!-- Replace wasip2 libraries with wasip1 -->
+      <_WasmNativeFileForLinking Remove="$(WasiSysRoot)\lib\wasm32-wasip2\libc++.a" />
+      <_WasmNativeFileForLinking Remove="$(WasiSysRoot)\lib\wasm32-wasip2\libc++abi.a" />
+      <_WasmNativeFileForLinking Remove="$(WasiSysRoot)/lib/wasm32-wasip2/libc++.a" />
+      <_WasmNativeFileForLinking Remove="$(WasiSysRoot)/lib/wasm32-wasip2/libc++abi.a" />
+      <_WasmNativeFileForLinking Include="$(WasiSysRoot)/lib/wasm32-wasi/libc++.a" />
+      <_WasmNativeFileForLinking Include="$(WasiSysRoot)/lib/wasm32-wasi/libc++abi.a" />
+    </ItemGroup>
+  </Target>
+
+  <!-- Remove component-type WIT, switch target to wasm32-wasi, and replace wasip2
+       libraries in the link args to produce a core WASM module.
+       Runs after _WasiWriteRspForLinking populates _WasmLinkStepArgs, but before
+       _WasmWriteRspForLinking writes them to clang-link.rsp. -->
+  <Target Name="StripComponentModel" AfterTargets="_WasiWriteRspForLinking" BeforeTargets="_WasmWriteRspForLinking" Condition="'$(EXPERIMENTAL_WASM_AOT)' != '1' and $([MSBuild]::VersionGreaterThanOrEquals('$(TargetFrameworkVersion)', '10.0'))">
+    <ItemGroup>
+      <!-- Remove all _WasmLinkStepArgs and rebuild without component-type and wasip2 -->
+      <_StdbFilteredArgs Include="@(_WasmLinkStepArgs)" />
+      <_WasmLinkStepArgs Remove="@(_WasmLinkStepArgs)" />
+    </ItemGroup>
+    <ItemGroup>
+      <!-- Re-add all args except component-type and wasip2 target -->
+      <_WasmLinkStepArgs Include="@(_StdbFilteredArgs)"
+        Condition="!$([System.String]::new('%(Identity)').Contains('component-type')) and '%(Identity)' != '--target=wasm32-unknown-wasip2'" />
+      <!-- Use wasm32-wasi target so clang picks wasm-ld instead of wasm-component-ld -->
+      <_WasmLinkStepArgs Include="--target=wasm32-wasi" />
+      <!-- Import undefined symbols so SpacetimeDB host imports (table_id_from_name, etc.)
+           are preserved in the WASM module. These are resolved at runtime by the host. -->
+      <_WasmLinkStepArgs Include="-Wl,--import-undefined" />
+      <!-- Force mono_runtime_invoke to be pulled from libmonosgen-2.0.a BEFORE
+           we ignore unresolved symbols. -->
+      <_WasmLinkStepArgs Include="-Wl,--undefined=mono_runtime_invoke" />
+      <_WasmLinkStepArgs Include="-Wl,--undefined=mono_runtime_run_main" />
+      <!-- Also ignore unresolved symbols from wasip2-only networking APIs -->
+      <_WasmLinkStepArgs Include="-Wl,--unresolved-symbols=ignore-all" />
+    </ItemGroup>
+  </Target>
 
   <!-- Auto-download WASI SDK on the first run. -->
   <!-- Adapted from https://github.com/dotnet/dotnet-wasi-sdk/blob/2dbb00c779180873d3ed985e59e431f56404d8da/src/Wasi.Sdk/build/Wasi.Sdk.targets#L245-L262 -->
