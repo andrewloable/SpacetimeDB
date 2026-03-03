@@ -93,6 +93,7 @@ pub enum ClientLanguage {
     Rust,
     Csharp,
     TypeScript,
+    Go,
 }
 
 impl ClientLanguage {
@@ -101,6 +102,7 @@ impl ClientLanguage {
             ClientLanguage::Rust => "rust",
             ClientLanguage::Csharp => "csharp",
             ClientLanguage::TypeScript => "typescript",
+            ClientLanguage::Go => "go",
         }
     }
 
@@ -109,6 +111,7 @@ impl ClientLanguage {
             "rust" => Ok(Some(ClientLanguage::Rust)),
             "csharp" | "c#" => Ok(Some(ClientLanguage::Csharp)),
             "typescript" => Ok(Some(ClientLanguage::TypeScript)),
+            "go" | "golang" => Ok(Some(ClientLanguage::Go)),
             _ => Err(anyhow!("Unknown client language: {}", s)),
         }
     }
@@ -1331,6 +1334,9 @@ fn init_builtin(config: &TemplateConfig, project_path: &Path, is_server_only: bo
             Some(ClientLanguage::Csharp) => {
                 update_csproj_client_to_nuget(project_path)?;
             }
+            Some(ClientLanguage::Go) => {
+                // No name update needed for Go client at the moment
+            }
             None => {}
         }
     }
@@ -1512,6 +1518,15 @@ fn print_next_steps(config: &TemplateConfig, _project_path: &Path) -> anyhow::Re
                 config.project_name
             );
             println!("  spacetime generate --lang csharp --out-dir module_bindings --module-path spacetimedb");
+        }
+        (TemplateType::Builtin, Some(ServerLanguage::Go), Some(ClientLanguage::Go)) => {
+            println!(
+                "  spacetime publish --module-path spacetimedb {}{}",
+                if config.use_local { "--server local " } else { "" },
+                config.project_name
+            );
+            println!("  spacetime generate --lang go --out-dir module_bindings --module-path spacetimedb");
+            println!("  go run .");
         }
         (TemplateType::Empty, _, Some(ClientLanguage::TypeScript)) => {
             println!("  npm install");
