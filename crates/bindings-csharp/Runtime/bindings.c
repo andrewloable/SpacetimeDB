@@ -48,9 +48,13 @@ OPAQUE_TYPEDEF(ConsoleTimerId, uint32_t);
 // Create wrapper functions so the linker sees C-level usage of the imports
 // and doesn't garbage-collect them. The _imp suffix is the actual WASM import,
 // and the wrapper is what P/Invoke resolves to.
-#define IMPORT(ret, name, params, args)    \
-  STDB_EXTERN(name) ret name##_imp params; \
-  ret name params { return name##_imp args; }
+// export_name prevents wasm-opt from removing these "unused" wrappers.
+// They are called from C# P/Invoke at runtime (invisible to static analysis).
+#define IMPORT(ret, name, params, args)                        \
+  STDB_EXTERN(name) ret name##_imp params;                     \
+  __attribute__((export_name(#name))) ret name params {        \
+    return name##_imp args;                                    \
+  }
 #else
 #define IMPORT(ret, name, params, args) STDB_EXTERN(name) ret name params;
 #endif

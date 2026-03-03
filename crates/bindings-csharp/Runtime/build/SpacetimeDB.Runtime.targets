@@ -32,6 +32,11 @@
 
   <ItemGroup Condition="'$(EXPERIMENTAL_WASM_AOT)' != '1'">
     <NativeFileReference Include="$(MSBuildThisFileDirectory)..\bindings.c" />
+    <!-- Register "bindings" as a P/Invoke module so the PInvokeTableGenerator
+         creates entries for SpacetimeDB host functions (bytes_sink_write, etc.).
+         NativeFileReference alone is insufficient because _WasmNativeFileForLinking
+         is populated after the _GenerateManagedToNative target runs in .NET 10. -->
+    <_WasmPInvokeModules Include="bindings" />
   </ItemGroup>
 
   <!-- For .NET 10+ (wasip2 target), define DOTNET_WASI_P2 to use mono_runtime_invoke
@@ -90,14 +95,14 @@
       <!-- Use wasm32-wasi target so clang picks wasm-ld instead of wasm-component-ld -->
       <_WasmLinkStepArgs Include="--target=wasm32-wasi" />
       <!-- Import undefined symbols so SpacetimeDB host imports (table_id_from_name, etc.)
-           are preserved in the WASM module. These are resolved at runtime by the host. -->
+           are preserved in the WASM module. These are resolved at runtime by the host.
+           IMPORTANT: Do NOT combine with - -unresolved-symbols=ignore-all, as that flag
+           overrides - -import-undefined and silently drops all WASM imports including
+           the SpacetimeDB host functions needed for P/Invoke. -->
       <_WasmLinkStepArgs Include="-Wl,--import-undefined" />
-      <!-- Force mono_runtime_invoke to be pulled from libmonosgen-2.0.a BEFORE
-           we ignore unresolved symbols. -->
+      <!-- Force mono_runtime_invoke to be pulled from libmonosgen-2.0.a. -->
       <_WasmLinkStepArgs Include="-Wl,--undefined=mono_runtime_invoke" />
       <_WasmLinkStepArgs Include="-Wl,--undefined=mono_runtime_run_main" />
-      <!-- Also ignore unresolved symbols from wasip2-only networking APIs -->
-      <_WasmLinkStepArgs Include="-Wl,--unresolved-symbols=ignore-all" />
     </ItemGroup>
   </Target>
 
@@ -121,7 +126,7 @@
       <WasiSdkUrl>https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-$(WasiSdkVersion)/wasi-sdk-$(WasiSdkVersion).0-$(WasiSdkArch)-$(WasiSdkOS).tar.gz</WasiSdkUrl>
 
       <WasiSdkRoot>$([System.IO.Path]::Combine($([System.Environment]::GetFolderPath(SpecialFolder.UserProfile)), '.wasi-sdk', "wasi-sdk-$(WasiSdkVersion)"))</WasiSdkRoot>
-      <WASI_SDK_PATH>$(WasiSdkRoot)</WASI_SDK_PATH>
+      <WASI_SDK_PATH>$([MSBuild]::EnsureTrailingSlash($(WasiSdkRoot)))</WASI_SDK_PATH>
       <WasiSysRoot>$([System.IO.Path]::Combine($(WasiSdkRoot), 'share', 'wasi-sysroot'))</WasiSysRoot>
       <WasiClang>$([System.IO.Path]::Combine($(WasiSdkRoot), 'bin', 'clang'))</WasiClang>
       <WasiClang Condition="$([MSBuild]::IsOSPlatform('Windows'))">$(WasiClang).exe</WasiClang>
