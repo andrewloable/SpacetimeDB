@@ -1306,7 +1306,7 @@ fn init_builtin(config: &TemplateConfig, project_path: &Path, is_server_only: bo
 
     let template_files = embedded::get_template_files();
 
-    if !is_server_only {
+    if !is_server_only && !template_def.client_source.is_empty() {
         println!(
             "Setting up client ({})...",
             config.client_lang.map(|l| l.as_str()).unwrap_or("none")
@@ -1335,7 +1335,15 @@ fn init_builtin(config: &TemplateConfig, project_path: &Path, is_server_only: bo
                 update_csproj_client_to_nuget(project_path)?;
             }
             Some(ClientLanguage::Go) => {
-                // No name update needed for Go client at the moment
+                // Rewrite go.mod with the correct SDK replace directive.
+                let go_mod_path = project_path.join("go.mod");
+                if go_mod_path.exists() {
+                    let (go_mod_content, sdk_found) = build_go_client_mod_content(project_path, &config.project_name);
+                    std::fs::write(&go_mod_path, &go_mod_content)?;
+                    if sdk_found {
+                        run_go_mod_tidy(project_path);
+                    }
+                }
             }
             None => {}
         }
@@ -1552,6 +1560,26 @@ fn print_next_steps(config: &TemplateConfig, _project_path: &Path) -> anyhow::Re
                 println!("  spacetime generate --lang rust --out-dir src/module_bindings --module-path spacetimedb");
             }
             println!("  cargo run");
+        }
+        (TemplateType::Builtin, Some(ServerLanguage::Go), Some(ClientLanguage::Go)) => {
+            println!(
+                "  spacetime publish --module-path spacetimedb {}{}",
+                if config.use_local { "--server local " } else { "" },
+                config.project_name
+            );
+            println!("  spacetime generate --lang go --out-dir module_bindings --module-path spacetimedb");
+            println!("  go run .");
+        }
+        (TemplateType::Empty, _, Some(ClientLanguage::Go)) => {
+            if config.server_lang.is_some() {
+                println!(
+                    "  spacetime publish --module-path spacetimedb {}{}",
+                    if config.use_local { "--server local " } else { "" },
+                    config.project_name
+                );
+                println!("  spacetime generate --lang go --out-dir module_bindings --module-path spacetimedb");
+            }
+            println!("  go run .");
         }
         (_, Some(ServerLanguage::Go), _) => {
             println!("  cd spacetimedb");
@@ -1936,6 +1964,33 @@ fn build_go_mod_content(project_path: &Path, project_name: &str) -> (String, boo
     (content, false)
 }
 
+/// Builds go.mod content for a Go client project, substituting the SDK replace
+/// directive with the real path when the SpacetimeDB repository can be found.
+/// Returns `(content, sdk_paths_found)`.
+fn build_go_client_mod_content(project_path: &Path, project_name: &str) -> (String, bool) {
+    let template = include_str!("../../../../templates/basic-go/go.mod");
+
+    let module_name = sanitize_go_module_name(project_name);
+    let template = template.replace("spacetimedb-client", &module_name);
+
+    let abs_project = std::env::current_dir()
+        .ok()
+        .map(|cwd| cwd.join(project_path))
+        .unwrap_or_else(|| project_path.to_path_buf());
+
+    if let Some((go_path, _)) = find_spacetimedb_go_sdk_paths(&abs_project) {
+        let content = template.replace("SPACETIMEDB_GO_PATH", &go_path);
+        return (content, true);
+    }
+
+    // SDK not found: comment out the replace directive.
+    let content = template.replace(
+        "replace github.com/clockworklabs/spacetimedb-go => SPACETIMEDB_GO_PATH",
+        "// replace github.com/clockworklabs/spacetimedb-go => /path/to/spacetimedb/sdks/go",
+    );
+    (content, false)
+}
+
 /// Searches upward from `start` to find the SpacetimeDB repository root, identified
 /// by the presence of both `sdks/go` and `crates/bindings-go` directories.
 /// Returns relative path strings (from `start`) to each SDK directory.
@@ -2026,15 +2081,15 @@ fn create_directory(path: &Path) -> anyhow::Result<()> {
 
 pub fn parse_server_lang(lang: &Option<String>) -> anyhow::Result<Option<ServerLanguage>> {
     match lang.as_deref() {
-        Some(s) => Ok(ServerLanguage::from_str(s)?),
-        None => Ok(None),
+        Some(s) if !s.is_empty() => Ok(ServerLanguage::from_str(s)?),
+        _ => Ok(None),
     }
 }
 
 pub fn parse_client_lang(lang: &Option<String>) -> anyhow::Result<Option<ClientLanguage>> {
     match lang.as_deref() {
-        Some(s) => Ok(ClientLanguage::from_str(s)?),
-        None => Ok(None),
+        Some(s) if !s.is_empty() => Ok(ClientLanguage::from_str(s)?),
+        _ => Ok(None),
     }
 }
 

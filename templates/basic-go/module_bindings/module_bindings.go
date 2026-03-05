@@ -29,14 +29,13 @@ func (r *RemoteReducers) Add(name string) (uint32, error) {
 
 // SayHello calls the SayHello reducer.
 func (r *RemoteReducers) SayHello() (uint32, error) {
-	w := bsatn.NewWriter()
-	return r.conn.CallReducer("SayHello", w.Bytes())
+	return r.conn.CallReducer("SayHello", nil)
 }
 
 // RegisterTables registers all table handlers with the connection.
 // Call this before conn.RunAsync.
 func RegisterTables(conn *client.DbConnection, tables *RemoteTables) {
-	conn.RegisterTableHandler("Person", tables.Person)
+	conn.RegisterTableHandler("person", tables.Person)
 }
 
 // NewRemoteTables creates table handles for all module tables.
