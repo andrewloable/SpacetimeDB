@@ -13,11 +13,11 @@ import (
 func main() {
 	host := "localhost:3000"
 	dbName := "my-db"
-	if len(os.Args) > 1 {
-		host = os.Args[1]
+	if v := os.Getenv("SPACETIMEDB_HOST"); v != "" {
+		host = v
 	}
-	if len(os.Args) > 2 {
-		dbName = os.Args[2]
+	if v := os.Getenv("SPACETIMEDB_DB_NAME"); v != "" {
+		dbName = v
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -34,18 +34,18 @@ func main() {
 	defer conn.Disconnect()
 
 	tables := module_bindings.NewRemoteTables()
-	reducers := module_bindings.NewRemoteReducers(conn)
+	_ = module_bindings.NewRemoteReducers(conn)
 	module_bindings.RegisterTables(conn, tables)
 
-	// Register a callback for when rows are inserted into the person table.
+	// Register table callbacks before subscribing.
 	tables.Person.OnInsert(func(person module_bindings.Person, _ client.EventContext) {
 		fmt.Printf("New person: %s\n", person.Name)
 	})
 
 	errCh := conn.RunAsync(ctx)
 
-	// Subscribe to the person table.
-	if _, err := conn.Subscribe([]string{"SELECT * FROM Person"}); err != nil {
+	// Subscribe to all rows.
+	if _, err := conn.Subscribe([]string{"SELECT * FROM *"}); err != nil {
 		fmt.Fprintf(os.Stderr, "subscribe: %v\n", err)
 		os.Exit(1)
 	}

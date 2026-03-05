@@ -195,9 +195,9 @@ func writeProductType(w *bsatn.Writer, p ProductType) {
 
 func writeOptionalString(w *bsatn.Writer, s *string) {
 	if s == nil {
-		w.WriteU8(0) // None
+		w.WriteVariantTag(1) // None
 	} else {
-		w.WriteU8(1) // Some
+		w.WriteVariantTag(0) // Some
 		w.WriteString(*s)
 	}
 }
@@ -315,9 +315,10 @@ func readOptionalString(r *bsatn.Reader) (*string, error) {
 	if err != nil {
 		return nil, err
 	}
-	if tag == 0 {
-		return nil, nil
+	if tag == 1 {
+		return nil, nil // None
 	}
+	// tag == 0 means Some
 	s, err := r.ReadString()
 	if err != nil {
 		return nil, err

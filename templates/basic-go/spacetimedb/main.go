@@ -1,5 +1,8 @@
 //go:generate go run github.com/clockworklabs/spacetimedb-go-server/cmd/stdbgen
 
+// Package main is a SpacetimeDB module compiled to WebAssembly with TinyGo.
+// Run `go generate` to regenerate the type-safe bindings from stdb.yaml.
+// Build with: tinygo build -target wasm -o module.wasm ./
 package main
 
 import (
@@ -38,7 +41,7 @@ func init() {
 		Access: spacetimedb.TableAccessPublic,
 	})
 
-	// Register the Add reducer (must match handler index below).
+	// Register the Add reducer (must be registered in the same order as the handler).
 	spacetimedb.RegisterReducerDef(spacetimedb.ReducerDef{
 		Name: "Add",
 		Params: []spacetimedb.ColumnDef{
@@ -57,25 +60,27 @@ func init() {
 	spacetimedb.RegisterReducerHandler(sayHelloReducer)
 }
 
-func addReducer(_ spacetimedb.ReducerContext, args sys.BytesSource) {
+func addReducer(ctx spacetimedb.ReducerContext, args sys.BytesSource) {
+	// ctx.Sender holds the caller's identity; ctx.Timestamp is the call time.
+	_ = ctx
+
 	data, err := sys.ReadBytesSource(args)
 	if err != nil {
-		spacetimedb.LogError("addReducer: failed to read args: " + err.Error())
-		return
+		// panic() causes the host to roll back the transaction and log the message.
+		panic("addReducer: failed to read args: " + err.Error())
 	}
 	r := bsatn.NewReader(data)
 	name, err := r.ReadString()
 	if err != nil {
-		spacetimedb.LogError("addReducer: failed to decode name: " + err.Error())
-		return
+		panic("addReducer: failed to decode name: " + err.Error())
 	}
-	_, err = personTable.Insert(Person{Name: name})
-	if err != nil {
-		spacetimedb.LogError("addReducer: insert failed: " + err.Error())
+	if _, err = personTable.Insert(Person{Name: name}); err != nil {
+		panic("addReducer: insert failed: " + err.Error())
 	}
 }
 
 func sayHelloReducer(_ spacetimedb.ReducerContext, _ sys.BytesSource) {
+	// Iterate over all rows in the Person table.
 	for person, err := range personTable.Iter() {
 		if err != nil {
 			break

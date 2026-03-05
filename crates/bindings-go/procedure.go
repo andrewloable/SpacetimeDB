@@ -128,6 +128,60 @@ func (p *ProcedureContext) Http(req HttpRequest, body []byte) (HttpResponse, []b
 	return resp, respBody, nil
 }
 
+// Client returns an HttpClient bound to this ProcedureContext, providing
+// convenient Get, Post, and Send methods.
+func (p *ProcedureContext) Client() ProcedureHttpClient {
+	return ProcedureHttpClient{proc: p}
+}
+
+// ── HttpClient ────────────────────────────────────────────────────────────────
+
+// ProcedureHttpClient is a convenience wrapper around ProcedureContext that
+// provides named HTTP methods (Get, Post, Send) for common request patterns.
+//
+// Obtain one from ProcedureContext.Client():
+//
+//	client := ctx.Client()
+//	resp, body, err := client.Get("https://example.com/api")
+type ProcedureHttpClient struct {
+	proc *ProcedureContext
+}
+
+// Get sends an HTTP GET request to uri and returns the response.
+// The optional timeout (in microseconds) is applied when non-zero.
+func (c ProcedureHttpClient) Get(uri string) (HttpResponse, []byte, error) {
+	return c.proc.Http(HttpRequest{
+		Method:  HttpMethodGet,
+		URI:     uri,
+		Version: HttpVersionHTTP11,
+	}, nil)
+}
+
+// GetWithTimeout sends an HTTP GET request to uri with the given timeout.
+// timeoutMicros is the request timeout in microseconds (≤500ms enforced by host).
+func (c ProcedureHttpClient) GetWithTimeout(uri string, timeoutMicros int64) (HttpResponse, []byte, error) {
+	return c.proc.Http(HttpRequest{
+		Method:        HttpMethodGet,
+		URI:           uri,
+		Version:       HttpVersionHTTP11,
+		TimeoutMicros: &timeoutMicros,
+	}, nil)
+}
+
+// Post sends an HTTP POST request to uri with body and returns the response.
+func (c ProcedureHttpClient) Post(uri string, body []byte) (HttpResponse, []byte, error) {
+	return c.proc.Http(HttpRequest{
+		Method:  HttpMethodPost,
+		URI:     uri,
+		Version: HttpVersionHTTP11,
+	}, body)
+}
+
+// Send sends the given HttpRequest with body and returns the response.
+func (c ProcedureHttpClient) Send(req HttpRequest, body []byte) (HttpResponse, []byte, error) {
+	return c.proc.Http(req, body)
+}
+
 // ── Procedure handler and registry ───────────────────────────────────────────
 
 // ProcedureHandler implements a procedure body.
@@ -204,8 +258,20 @@ func callProcedure(
 		Auth:         newAuthCtxFromConnection(connID, sender),
 	}
 
-	procedureHandlers[id](ctx, args, resultSink)
-	return 0
+	// Execute the procedure with panic recovery.
+	// On panic, write the error message to resultSink and return HOST_CALL_FAILURE (1).
+	var result int16
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				msg := fmt.Sprintf("%v", r)
+				_ = sys.WriteBytesToSink(resultSink, []byte(msg))
+				result = 1
+			}
+		}()
+		procedureHandlers[id](ctx, args, resultSink)
+	}()
+	return result
 }
 
 // ── Procedure section in module def ──────────────────────────────────────────

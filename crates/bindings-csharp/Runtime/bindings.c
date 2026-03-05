@@ -5,8 +5,22 @@
 #include <stdint.h>
 #include <unistd.h>
 
-#ifndef EXPERIMENTAL_WASM_AOT
+#if !defined(EXPERIMENTAL_WASM_AOT) && !defined(DOTNET_WASI_P2)
 #include "driver.h"
+#elif defined(DOTNET_WASI_P2)
+// .NET 10+: Mono headers are available but mono_wasm_invoke_method_ref is gone.
+// Use mono_runtime_invoke instead.
+#include <mono/metadata/assembly.h>
+#include <mono/metadata/loader.h>
+#include <mono/metadata/object.h>
+
+// These functions are still available in .NET 10 wasi-wasm runtime.
+MonoAssembly *mono_wasm_assembly_load(const char *name);
+MonoClass *mono_wasm_assembly_find_class(MonoAssembly *assembly,
+                                         const char *namespace_name,
+                                         const char *name);
+MonoMethod *mono_wasm_assembly_find_method(MonoClass *klass, const char *name,
+                                           int arguments);
 #endif
 
 #define OPAQUE_TYPEDEF(name, T) \
@@ -30,10 +44,17 @@ OPAQUE_TYPEDEF(ConsoleTimerId, uint32_t);
 #define STDB_EXTERN(name) \
   __attribute__((import_module(SPACETIME_MODULE_VERSION), import_name(#name))) extern
 
-#ifndef EXPERIMENTAL_WASM_AOT
-#define IMPORT(ret, name, params, args)    \
-  STDB_EXTERN(name) ret name##_imp params; \
-  ret name params { return name##_imp args; }
+#if !defined(EXPERIMENTAL_WASM_AOT)
+// Create wrapper functions so the linker sees C-level usage of the imports
+// and doesn't garbage-collect them. The _imp suffix is the actual WASM import,
+// and the wrapper is what P/Invoke resolves to.
+// export_name prevents wasm-opt from removing these "unused" wrappers.
+// They are called from C# P/Invoke at runtime (invisible to static analysis).
+#define IMPORT(ret, name, params, args)                        \
+  STDB_EXTERN(name) ret name##_imp params;                     \
+  __attribute__((export_name(#name))) ret name params {        \
+    return name##_imp args;                                    \
+  }
 #else
 #define IMPORT(ret, name, params, args) STDB_EXTERN(name) ret name params;
 #endif
@@ -129,7 +150,7 @@ IMPORT(uint16_t, procedure_http_request,
        (request_ptr, request_len, body_ptr, body_len, out));
 #undef SPACETIME_MODULE_VERSION
 
-#ifndef EXPERIMENTAL_WASM_AOT
+#if !defined(EXPERIMENTAL_WASM_AOT)
 static MonoClass* ffi_class;
 
 #define CEXPORT(name) __attribute__((export_name(#name))) name
@@ -137,19 +158,81 @@ static MonoClass* ffi_class;
 #define PREINIT(priority, name) void CEXPORT(__preinit__##priority##_##name)()
 
 PREINIT(10, startup) {
-  // mono_wasm_load_runtime("", 0);
-  // ^ not enough because it doesn't reach to assembly with Main function
-  // so module descriptor remains unpopulated. Invoke actual _start instead.
+#if !defined(DOTNET_WASI_P2)
+  // .NET 8: mono_wasm_load_runtime alone isn't enough because it doesn't
+  // reach the assembly with Main, so module descriptor remains unpopulated.
+  // Invoke actual _start instead.
   extern void _start();
   _start();
+#else
+  // .NET 10+: _start() calls main() which runs to completion and calls exit().
+  // We need to:
+  // 1. Initialize the Mono runtime
+  // 2. Load and run the entry assembly (to trigger static initializers)
+  //    but without letting main() exit the process.
+  extern int initialize_runtime();
+  initialize_runtime();
 
-  ffi_class = mono_wasm_assembly_find_class(
-      mono_wasm_assembly_load("SpacetimeDB.Runtime.dll"),
-      "SpacetimeDB.Internal", "Module");
+  // Load the entry point assembly and run its Main method.
+  // This triggers the [ModuleInitializer] generated code that registers
+  // tables and reducers with the SpacetimeDB runtime.
+  extern const char* dotnet_wasi_getentrypointassemblyname();
+  extern MonoMethod* mono_wasi_assembly_get_entry_point(MonoAssembly *assembly);
+  // stdb_run_main wraps mono_runtime_run_main, which properly handles
+  // Main(string[] args) and triggers module initializers.
+  extern int stdb_run_main(MonoMethod*, int, char*[], MonoObject**);
+
+  const char* entry_name = dotnet_wasi_getentrypointassemblyname();
+  MonoAssembly* entry_asm = mono_wasm_assembly_load(entry_name);
+  if (!entry_asm) {
+    entry_asm = mono_assembly_open(entry_name, NULL);
+  }
+  assert(entry_asm && "Failed to load entry assembly");
+
+  // Run Main() via mono_runtime_run_main — this properly constructs
+  // the string[] args parameter, triggers [ModuleInitializer] in the
+  // user assembly, and returns without calling exit().
+  MonoMethod* entry_method = mono_wasi_assembly_get_entry_point(entry_asm);
+  if (entry_method) {
+    MonoObject* exc = NULL;
+    char* empty_argv[] = { (char*)entry_name, NULL };
+    stdb_run_main(entry_method, 0, empty_argv, &exc);
+    // Ignore any exception - Main() for SpacetimeDB modules is typically empty
+  }
+#endif
+
+  MonoAssembly* assembly = mono_wasm_assembly_load("SpacetimeDB.Runtime");
+  if (!assembly) {
+    assembly = mono_wasm_assembly_load("SpacetimeDB.Runtime.dll");
+  }
+  ffi_class = assembly ? mono_wasm_assembly_find_class(
+      assembly, "SpacetimeDB.Internal", "Module") : NULL;
   assert(ffi_class &&
          "FFI export class (SpacetimeDB.Internal.Module) not found");
 }
 
+#if defined(DOTNET_WASI_P2)
+// .NET 10+: mono_wasm_invoke_method_ref was removed. Use stdb_mono_invoke
+// which is a thin wrapper around mono_runtime_invoke, compiled from
+// stdb_mono_invoke.c — that file is linked before the static archives so
+// mono_runtime_invoke gets extracted from libmonosgen-2.0.a.
+extern MonoObject* stdb_mono_invoke(MonoMethod *method, void *obj,
+                                    void **params, MonoObject **exc);
+
+#define EXPORT_WITH_MONO_RES(ret, res_code, name, params, args...)            \
+  static MonoMethod* ffi_method_##name;                                       \
+  PREINIT(20, find_##name) {                                                  \
+    ffi_method_##name = mono_wasm_assembly_find_method(ffi_class, #name, -1); \
+    assert(ffi_method_##name && "FFI export method not found");               \
+  }                                                                           \
+  ret CEXPORT(name) params {                                                  \
+    MonoObject* exc = NULL;                                                   \
+    MonoObject* res = stdb_mono_invoke(ffi_method_##name, NULL,               \
+                                       (void*[]){args}, &exc);                \
+    res_code                                                                  \
+  }
+#else
+// .NET 8: Use mono_wasm_invoke_method_ref
 #define EXPORT_WITH_MONO_RES(ret, res_code, name, params, args...)            \
   static MonoMethod* ffi_method_##name;                                       \
   PREINIT(20, find_##name) {                                                  \
@@ -162,6 +245,7 @@ PREINIT(10, startup) {
                                 NULL, &res);                                  \
     res_code                                                                  \
   }
+#endif
 
 #define EXPORT(ret, name, params, args...)                                             \
   EXPORT_WITH_MONO_RES(ret, return *(ret*)mono_object_unbox(res);, name, params, args) \

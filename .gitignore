@@ -264,6 +264,3 @@ nul
 # AI agent config
 .codex
 .claude
-
-# Local testing
-localtest/

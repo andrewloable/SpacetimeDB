@@ -5,11 +5,12 @@
 //
 // Compile a module with:
 //
-//	tinygo build -target wasm -o module.wasm ./
+//	tinygo build -target wasm-unknown -buildmode=c-shared -o module.wasm ./
 package spacetimedb
 
 import (
 	"math/rand"
+	"runtime"
 
 	"github.com/clockworklabs/spacetimedb-go-server/sys"
 	"github.com/clockworklabs/spacetimedb-go/types"
@@ -51,29 +52,113 @@ const (
 	LogLevelPanic LogLevel = 101
 )
 
-// Log writes msg at the given level to the SpacetimeDB host log.
-func Log(level LogLevel, msg string) {
-	sys.ConsoleLog(uint32(level), "", "", 0, msg)
+// logWithCaller writes msg at the given level, capturing the call site of the
+// caller `skip` frames above this function (skip=2 reaches the public API caller).
+func logWithCaller(skip int, level LogLevel, msg string) {
+	_, file, line, ok := runtime.Caller(skip)
+	if !ok {
+		file, line = "", 0
+	}
+	// Use only the base filename, not the full path.
+	short := file
+	for i := len(file) - 1; i > 0; i-- {
+		if file[i] == '/' || file[i] == '\\' {
+			short = file[i+1:]
+			break
+		}
+	}
+	sys.ConsoleLog(uint32(level), "", short, uint32(line), msg)
 }
 
+// Log writes msg at the given level to the SpacetimeDB host log.
+// The caller's file and line number are captured automatically.
+func Log(level LogLevel, msg string) { logWithCaller(2, level, msg) }
+
 // LogError writes msg at Error level.
-func LogError(msg string) { Log(LogLevelError, msg) }
+func LogError(msg string) { logWithCaller(2, LogLevelError, msg) }
 
 // LogWarn writes msg at Warn level.
-func LogWarn(msg string) { Log(LogLevelWarn, msg) }
+func LogWarn(msg string) { logWithCaller(2, LogLevelWarn, msg) }
 
 // LogInfo writes msg at Info level.
-func LogInfo(msg string) { Log(LogLevelInfo, msg) }
+func LogInfo(msg string) { logWithCaller(2, LogLevelInfo, msg) }
 
 // LogDebug writes msg at Debug level.
-func LogDebug(msg string) { Log(LogLevelDebug, msg) }
+func LogDebug(msg string) { logWithCaller(2, LogLevelDebug, msg) }
 
 // LogTrace writes msg at Trace level.
-func LogTrace(msg string) { Log(LogLevelTrace, msg) }
+func LogTrace(msg string) { logWithCaller(2, LogLevelTrace, msg) }
 
 // LogPanic writes msg at Panic level then panics.
 // The panic will cause the host to roll back the current transaction.
 func LogPanic(msg string) {
-	Log(LogLevelPanic, msg)
+	logWithCaller(2, LogLevelPanic, msg)
 	panic(msg)
 }
+
+// ── LogStopwatch ──────────────────────────────────────────────────────────────
+
+// LogStopwatch wraps a host timing span with an idiomatic Go interface.
+// Create one with NewLogStopwatch and defer Stop to guarantee cleanup:
+//
+//	sw := spacetimedb.NewLogStopwatch("myop")
+//	defer sw.Stop()
+type LogStopwatch struct {
+	id uint32
+}
+
+// NewLogStopwatch starts a new timing span named `name` on the SpacetimeDB host
+// and returns a LogStopwatch that can be stopped with Stop().
+func NewLogStopwatch(name string) LogStopwatch {
+	return LogStopwatch{id: sys.ConsoleTimerStart(name)}
+}
+
+// Stop ends the timing span and logs its elapsed duration to the host.
+func (sw LogStopwatch) Stop() {
+	_ = sys.ConsoleTimerEnd(sw.id)
+}
+
+// ── Module-level helpers ──────────────────────────────────────────────────────
+
+// ModuleIdentity returns the 32-byte identity of this module on the host.
+func ModuleIdentity() types.Identity {
+	return types.Identity(sys.Identity())
+}
+
+// VolatileNonatomicScheduleImmediate schedules a reducer call by name outside
+// the current transaction. The call is not guaranteed to be atomic with the
+// current transaction. args is the BSATN-encoded argument list.
+func VolatileNonatomicScheduleImmediate(name string, args []byte) {
+	sys.VolatileNonatomicScheduleImmediate(name, args)
+}
+
+// ── Sentinel errors ───────────────────────────────────────────────────────────
+//
+// These re-export the sys.Errno constants at the spacetimedb package level
+// so callers can check specific errors without importing the sys package.
+// Use errors.Is() for comparisons:
+//
+//	if errors.Is(err, spacetimedb.ErrNoSuchTable) { ... }
+var (
+	ErrHostCallFailure         = sys.ErrHostCallFailure
+	ErrNotInTransaction        = sys.ErrNotInTransaction
+	ErrBsatnDecodeError        = sys.ErrBsatnDecodeError
+	ErrNoSuchTable             = sys.ErrNoSuchTable
+	ErrNoSuchIndex             = sys.ErrNoSuchIndex
+	ErrNoSuchIter              = sys.ErrNoSuchIter
+	ErrNoSuchConsoleTimer      = sys.ErrNoSuchConsoleTimer
+	ErrNoSuchBytes             = sys.ErrNoSuchBytes
+	ErrNoSpace                 = sys.ErrNoSpace
+	ErrWrongIndexAlgo          = sys.ErrWrongIndexAlgo
+	ErrBufferTooSmall          = sys.ErrBufferTooSmall
+	ErrUniqueAlreadyExists     = sys.ErrUniqueAlreadyExists
+	ErrScheduleAtDelayTooLong  = sys.ErrScheduleAtDelayTooLong
+	ErrIndexNotUnique          = sys.ErrIndexNotUnique
+	ErrNoSuchRow               = sys.ErrNoSuchRow
+	ErrAutoIncOverflow         = sys.ErrAutoIncOverflow
+	ErrWouldBlockTransaction   = sys.ErrWouldBlockTransaction
+	ErrTransactionNotAnonymous = sys.ErrTransactionNotAnonymous
+	ErrTransactionIsReadOnly   = sys.ErrTransactionIsReadOnly
+	ErrTransactionIsMut        = sys.ErrTransactionIsMut
+	ErrHttpError               = sys.ErrHttpError
+)
