@@ -11,7 +11,7 @@ import (
 )
 
 func main() {
-	host := "localhost:3000"
+	host := "wss://maincloud.spacetimedb.com"
 	dbName := "my-db"
 	if v := os.Getenv("SPACETIMEDB_HOST"); v != "" {
 		host = v
