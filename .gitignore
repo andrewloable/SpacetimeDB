@@ -264,5 +264,3 @@ nul
 # AI agent config
 .codex
 .claude
-localtest
-beads_STDB

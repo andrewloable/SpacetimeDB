@@ -1527,6 +1527,15 @@ fn print_next_steps(config: &TemplateConfig, _project_path: &Path) -> anyhow::Re
             );
             println!("  spacetime generate --lang csharp --out-dir module_bindings --module-path spacetimedb");
         }
+        (TemplateType::Builtin, Some(ServerLanguage::Go), Some(ClientLanguage::Go)) => {
+            println!(
+                "  spacetime publish --module-path spacetimedb {}{}",
+                if config.use_local { "--server local " } else { "" },
+                config.project_name
+            );
+            println!("  spacetime generate --lang go --out-dir module_bindings --module-path spacetimedb");
+            println!("  go run .");
+        }
         (TemplateType::Empty, _, Some(ClientLanguage::TypeScript)) => {
             println!("  npm install");
             if config.server_lang.is_some() {
