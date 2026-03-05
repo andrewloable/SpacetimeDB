@@ -69,6 +69,11 @@ func (h *TableHandle[Row]) Insert(row Row) (Row, error) {
 	if err != nil {
 		return row, err
 	}
+	// The host writes back only generated column values (e.g. auto-increment),
+	// not the full row. When there are no generated columns, out is empty.
+	if len(out) == 0 {
+		return row, nil
+	}
 	r := bsatn.NewReader(out)
 	return h.decode(r)
 }
