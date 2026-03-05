@@ -15,19 +15,30 @@ Get a SpacetimeDB C# app running in under 5 minutes.
 
 - [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) installed
 - [SpacetimeDB CLI](https://spacetimedb.com/install) installed
+- [wasi-sdk](https://github.com/WebAssembly/wasi-sdk/releases) v25+ — required by .NET 10 to compile C# modules to WebAssembly. SpacetimeDB auto-downloads it on first build to `~/.wasi-sdk/`, but if that fails, install it manually (see step 1).
 
 <InstallCardLink />
 
 ---
 
 <StepByStep>
-  <Step title="Install .NET WASI workload">
+  <Step title="Install wasi-sdk (if auto-download fails)">
     <StepText>
-      SpacetimeDB C# modules compile to WebAssembly using the WASI experimental workload.
+      .NET 10 uses wasi-sdk (replacing the old `wasi-experimental` workload from .NET 8) to compile C# modules to WebAssembly. SpacetimeDB auto-downloads it on first build, but if that fails you can install it manually:
     </StepText>
     <StepCode>
 ```bash
-dotnet workload install wasi-experimental
+# macOS (ARM64)
+curl -LO https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-25/wasi-sdk-25.0-arm64-macos.tar.gz
+tar xf wasi-sdk-25.0-arm64-macos.tar.gz
+mkdir -p ~/.wasi-sdk && mv wasi-sdk-25.0-arm64-macos ~/.wasi-sdk/wasi-sdk-25
+
+# macOS (x64): use wasi-sdk-25.0-x86_64-macos.tar.gz
+# Linux (x64): use wasi-sdk-25.0-x86_64-linux.tar.gz
+# Windows (x64): use wasi-sdk-25.0-x86_64-windows.tar.gz
+
+# Set the environment variable (add to your shell profile)
+export WASI_SDK_PATH="$HOME/.wasi-sdk/wasi-sdk-25"
 ```
     </StepCode>
   </Step>

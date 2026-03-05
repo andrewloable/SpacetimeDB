@@ -1,9 +1,35 @@
+use anyhow::Context;
 use crate::detect::find_executable;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 mod embedded_go_sdk {
     include!(concat!(env!("OUT_DIR"), "/embedded_go_sdk.rs"));
+}
+
+/// Extracts the embedded Go SDK files to `cache_dir` so that `go mod edit -replace`
+/// can point at them during builds.
+fn extract_embedded_go_sdk(cache_dir: &Path) -> anyhow::Result<()> {
+    let server_dir = cache_dir.join("bindings-go");
+    let client_dir = cache_dir.join("sdks-go");
+
+    for (rel_path, content) in embedded_go_sdk::server_sdk_files() {
+        let dest = server_dir.join(rel_path);
+        if let Some(parent) = dest.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(&dest, content)?;
+    }
+
+    for (rel_path, content) in embedded_go_sdk::client_sdk_files() {
+        let dest = client_dir.join(rel_path);
+        if let Some(parent) = dest.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(&dest, content)?;
+    }
+
+    Ok(())
 }
 
 pub(crate) fn build_go(project_path: &Path, _build_debug: bool) -> anyhow::Result<PathBuf> {

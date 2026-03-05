@@ -168,7 +168,7 @@ public partial record Shape : TaggedEnum<(Circle Circle, Rectangle Rectangle)> {
 | `ctx.Db.Table.Get(id)` | `ctx.Db.Table.Id.Find(id)` | Method not found |
 | Wrong .csproj name | `StdbModule.csproj` | Publish fails silently |
 | Old .NET SDK | .NET 10 SDK required | WASI compilation fails |
-| Missing WASI workload | `dotnet workload install wasi-experimental` | Build fails |
+| Missing wasi-sdk | Install [wasi-sdk](https://github.com/WebAssembly/wasi-sdk/releases) v25+ and set `WASI_SDK_PATH`, or let SpacetimeDB auto-download to `~/.wasi-sdk/` | Build fails |
 | `[Procedure]` attribute | Reducers only | Procedures not supported in C# |
 | Missing `Public = true` | Add to `[Table]` attribute | Clients can't subscribe |
 | Using `Random` | Avoid non-deterministic code | Sandbox violation |
@@ -696,8 +696,12 @@ var dateTime = DateTimeOffset.FromUnixTimeMilliseconds(
 # Install .NET 10 SDK (required)
 # Download from https://dotnet.microsoft.com/download/dotnet/10.0
 
-# Install WASI workload
-dotnet workload install wasi-experimental
+# wasi-sdk v25+ is required (auto-downloaded on first build to ~/.wasi-sdk/)
+# If auto-download fails, install manually:
+# curl -LO https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-25/wasi-sdk-25.0-arm64-macos.tar.gz
+# tar xf wasi-sdk-25.0-arm64-macos.tar.gz
+# mkdir -p ~/.wasi-sdk && mv wasi-sdk-25.0-arm64-macos ~/.wasi-sdk/wasi-sdk-25
+# export WASI_SDK_PATH="$HOME/.wasi-sdk/wasi-sdk-25"
 ```
 
 ---
@@ -731,7 +735,7 @@ spacetime logs <module-name>
 2. **Use PascalCase for table access** — `ctx.Db.TableName`, not `ctx.Db.tableName`
 3. **Project file MUST be named `StdbModule.csproj`** — CLI requirement
 4. **Requires .NET 10 SDK** — install from https://dotnet.microsoft.com/download/dotnet/10.0
-5. **Install WASI workload** — `dotnet workload install wasi-experimental`
+5. **Requires wasi-sdk v25+** — auto-downloaded on first build to `~/.wasi-sdk/`, or install manually and set `WASI_SDK_PATH`
 6. **C# does NOT support procedures** — use reducers only
 7. **Reducers must be deterministic** — no filesystem, network, timers, or `Random`
 8. **Add `Public = true`** — if clients need to subscribe to a table

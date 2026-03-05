@@ -17,40 +17,17 @@ pub(crate) fn build_csharp(project_path: &Path, build_debug: bool) -> anyhow::Re
         };
     }
 
-    // Check if the `wasi-experimental` workload is installed. Unfortunately, we
-    // have to do this by inspecting the human-readable output. There is a
-    // hidden `--machine-readable` flag but it also mixes in human-readable
-    // output as well as unnecessarily updates various unrelated manifests.
-    match dotnet!("workload", "list").read() {
-        Ok(workloads) if workloads.contains("wasi-experimental") => {}
-        Ok(_) => {
-            // If wasi-experimental is not found, first check if we're running
-            // on .NET SDK 10.0. We can't even install that workload on older
-            // versions, so this helps to provide a nicer message than
-            // "Workload ID wasi-experimental is not recognized.".
-            let version = dotnet!("--version").read().unwrap_or_default();
+    // Check .NET SDK version.
+    match dotnet!("--version").read() {
+        Ok(version) => {
             if parse_major_version(&version) != Some(10) {
-                anyhow::bail!(concat!(
-                    ".NET SDK 10.0 is required, but found {version}.\n",
-                    "If you have multiple versions of .NET SDK installed, configure your project using https://learn.microsoft.com/en-us/dotnet/core/tools/global-json."
-                ));
+                anyhow::bail!(
+                    ".NET SDK 10.0 is required, but found {}.\n\
+                     If you have multiple versions of .NET SDK installed, configure your project \
+                     using https://learn.microsoft.com/en-us/dotnet/core/tools/global-json.",
+                    version
+                );
             }
-
-            // Finally, try to install the workload ourselves. On some systems
-            // this might require elevated privileges, so print a nice error
-            // message if it fails.
-            dotnet!(
-                "workload",
-                "install",
-                "wasi-experimental",
-                "--skip-manifest-update"
-            )
-            .stderr_capture()
-            .run()
-            .context(concat!(
-                "Couldn't install the required wasi-experimental workload.\n",
-                "You might need to install it manually by running `dotnet workload install wasi-experimental` with privileged rights."
-            ))?;
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             anyhow::bail!("dotnet not found in PATH. Please install .NET SDK 10.0.")
@@ -68,8 +45,27 @@ pub(crate) fn build_csharp(project_path: &Path, build_debug: bool) -> anyhow::Re
         )
     })?;
 
-    // run dotnet publish using cmd macro
-    dotnet!("publish", "-c", config_name, "-v", "quiet").run()?;
+    // Resolve WASI_SDK_PATH: use env var if set, otherwise default to ~/.wasi-sdk/wasi-sdk-25
+    // (the same path that SpacetimeDB.Runtime.targets auto-downloads to).
+    // Must have a trailing slash — .NET's WasiApp.targets concatenates paths without a separator.
+    let mut wasi_sdk_path = std::env::var("WASI_SDK_PATH").ok().unwrap_or_else(|| {
+        dirs::home_dir()
+            .unwrap_or_else(|| PathBuf::from("/tmp"))
+            .join(".wasi-sdk")
+            .join("wasi-sdk-25")
+            .to_string_lossy()
+            .into_owned()
+    });
+    if !wasi_sdk_path.ends_with('/') {
+        wasi_sdk_path.push('/');
+    }
+
+    // run dotnet publish, passing WASI_SDK_PATH both as env var and MSBuild property
+    let wasi_prop = format!("-p:WASI_SDK_PATH={}", wasi_sdk_path);
+    duct::cmd!("dotnet", "publish", "-c", config_name, "-v", "quiet", &wasi_prop)
+        .dir(project_path)
+        .env("WASI_SDK_PATH", &wasi_sdk_path)
+        .run()?;
 
     // check if file exists
     let subdir = if std::env::var_os("EXPERIMENTAL_WASM_AOT").is_some_and(|v| v == "1") {

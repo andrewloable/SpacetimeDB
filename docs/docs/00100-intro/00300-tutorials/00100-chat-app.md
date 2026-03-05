@@ -76,10 +76,14 @@ You may already have .NET 10 installed:
 dotnet --list-sdks
 ```
 
-Install the `wasi-experimental` workload required to compile C# to WebAssembly:
+.NET 10 requires [wasi-sdk](https://github.com/WebAssembly/wasi-sdk/releases) v25+ to compile C# modules to WebAssembly. SpacetimeDB auto-downloads it on first build to `~/.wasi-sdk/`. If auto-download fails, install manually and set `WASI_SDK_PATH`:
 
 ```bash
-dotnet workload install wasi-experimental
+# Example for macOS ARM64:
+curl -LO https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-25/wasi-sdk-25.0-arm64-macos.tar.gz
+tar xf wasi-sdk-25.0-arm64-macos.tar.gz
+mkdir -p ~/.wasi-sdk && mv wasi-sdk-25.0-arm64-macos ~/.wasi-sdk/wasi-sdk-25
+export WASI_SDK_PATH="$HOME/.wasi-sdk/wasi-sdk-25"
 ```
 
 </TabItem>

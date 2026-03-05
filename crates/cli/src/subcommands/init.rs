@@ -1561,26 +1561,6 @@ fn print_next_steps(config: &TemplateConfig, _project_path: &Path) -> anyhow::Re
             }
             println!("  cargo run");
         }
-        (TemplateType::Builtin, Some(ServerLanguage::Go), Some(ClientLanguage::Go)) => {
-            println!(
-                "  spacetime publish --module-path spacetimedb {}{}",
-                if config.use_local { "--server local " } else { "" },
-                config.project_name
-            );
-            println!("  spacetime generate --lang go --out-dir module_bindings --module-path spacetimedb");
-            println!("  go run .");
-        }
-        (TemplateType::Empty, _, Some(ClientLanguage::Go)) => {
-            if config.server_lang.is_some() {
-                println!(
-                    "  spacetime publish --module-path spacetimedb {}{}",
-                    if config.use_local { "--server local " } else { "" },
-                    config.project_name
-                );
-                println!("  spacetime generate --lang go --out-dir module_bindings --module-path spacetimedb");
-            }
-            println!("  go run .");
-        }
         (_, Some(ServerLanguage::Go), _) => {
             println!("  cd spacetimedb");
             println!("  go generate    # regenerate bindings from stdb.yaml (requires stdbgen)");
