@@ -288,6 +288,22 @@ You can write SpacetimeDB modules in several popular languages, with more to com
 - [Typescript](https://spacetimedb.com/docs/sdks/typescript/quickstart)
 - [Go](https://spacetimedb.com/docs/sdks/go/quickstart)
 
+## Go Module Benchmark Results
+
+Benchmark comparison between Rust and Go server-side modules (lower is better). All benchmarks run with `count=256` on the same hardware using Criterion.
+
+| Benchmark | Rust | Go | Go vs Rust |
+|-----------|------|----|------------|
+| empty | 13.4 µs | 23.2 µs | 1.7x |
+| insert_bulk/str/unique_0 | 137.2 µs | 139.2 µs | 1.01x |
+| insert_bulk/str/btree_each_column | 199.1 µs | 204.9 µs | 1.03x |
+| insert_bulk/u64/unique_0 | 92.0 µs | 100.6 µs | 1.09x |
+| insert_bulk/u64/btree_each_column | 130.8 µs | 137.2 µs | 1.05x |
+| iterate/u32_u64_str/unique_0 | 30.4 µs | 31.5 µs | 1.04x |
+| iterate/u64/unique_0 | 20.0 µs | 27.6 µs | 1.38x |
+
+Go modules achieve near-parity with Rust for bulk inserts (within 1-9%) and iteration (within 4-38%), compiled to WASM via TinyGo. C# modules were 25-60x slower across all benchmarks.
+
 ## License
 
 SpacetimeDB is licensed under the BSL 1.1 license. This is not an open source or free software license, however, it converts to the AGPL v3.0 license with a linking exception after a few years.
