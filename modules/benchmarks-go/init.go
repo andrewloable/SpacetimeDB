@@ -5,6 +5,21 @@ import (
 	"github.com/clockworklabs/spacetimedb-go/types"
 )
 
+// numTables is the number of tables registered below.
+// Custom types in the typespace are indexed starting at this offset.
+const numTables = 17
+
+// Pre-computed RefType references for custom types in the typespace.
+// These are used in column defs and reducer params so the validator
+// sees Ref types instead of inline product/sum types.
+var (
+	refVector2     = types.RefType{Ref: numTables + 0} // 17
+	refAgentAction = types.RefType{Ref: numTables + 1} // 18
+	refSmallHexTile = types.RefType{Ref: numTables + 2} // 19
+	refU32U64Str   = types.RefType{Ref: numTables + 3} // 20
+	refU32U64U64   = types.RefType{Ref: numTables + 4} // 21
+)
+
 func init() {
 	// ── Synthetic Tables ───────────────────────────────────────────────────
 
@@ -18,7 +33,10 @@ func init() {
 		},
 		PrimaryKey: []uint16{0},
 		Indexes: []spacetimedb.IndexDef{
-			{AccessorName: sptr("id"), Algorithm: spacetimedb.IndexAlgorithmBTree, Columns: []uint16{0}},
+			{SourceName: sptr("unique_0_u32_u64_str_id_idx_btree"), AccessorName: sptr("id"), Algorithm: spacetimedb.IndexAlgorithmBTree, Columns: []uint16{0}},
+		},
+		Constraints: []spacetimedb.ConstraintDef{
+			{SourceName: sptr("unique_0_u32_u64_str_id_unique"), Columns: []uint16{0}},
 		},
 		Access: spacetimedb.TableAccessPublic,
 	})
@@ -43,9 +61,9 @@ func init() {
 			{Name: "name", Type: types.AlgebraicString},
 		},
 		Indexes: []spacetimedb.IndexDef{
-			{AccessorName: sptr("id"), Algorithm: spacetimedb.IndexAlgorithmBTree, Columns: []uint16{0}},
-			{AccessorName: sptr("age"), Algorithm: spacetimedb.IndexAlgorithmBTree, Columns: []uint16{1}},
-			{AccessorName: sptr("name"), Algorithm: spacetimedb.IndexAlgorithmBTree, Columns: []uint16{2}},
+			{SourceName: sptr("btree_each_column_u32_u64_str_id_idx_btree"), AccessorName: sptr("id"), Algorithm: spacetimedb.IndexAlgorithmBTree, Columns: []uint16{0}},
+			{SourceName: sptr("btree_each_column_u32_u64_str_age_idx_btree"), AccessorName: sptr("age"), Algorithm: spacetimedb.IndexAlgorithmBTree, Columns: []uint16{1}},
+			{SourceName: sptr("btree_each_column_u32_u64_str_name_idx_btree"), AccessorName: sptr("name"), Algorithm: spacetimedb.IndexAlgorithmBTree, Columns: []uint16{2}},
 		},
 		Access: spacetimedb.TableAccessPublic,
 	})
@@ -60,7 +78,10 @@ func init() {
 		},
 		PrimaryKey: []uint16{0},
 		Indexes: []spacetimedb.IndexDef{
-			{AccessorName: sptr("id"), Algorithm: spacetimedb.IndexAlgorithmBTree, Columns: []uint16{0}},
+			{SourceName: sptr("unique_0_u32_u64_u64_id_idx_btree"), AccessorName: sptr("id"), Algorithm: spacetimedb.IndexAlgorithmBTree, Columns: []uint16{0}},
+		},
+		Constraints: []spacetimedb.ConstraintDef{
+			{SourceName: sptr("unique_0_u32_u64_u64_id_unique"), Columns: []uint16{0}},
 		},
 		Access: spacetimedb.TableAccessPublic,
 	})
@@ -85,9 +106,9 @@ func init() {
 			{Name: "y", Type: types.AlgebraicU64},
 		},
 		Indexes: []spacetimedb.IndexDef{
-			{AccessorName: sptr("id"), Algorithm: spacetimedb.IndexAlgorithmBTree, Columns: []uint16{0}},
-			{AccessorName: sptr("x"), Algorithm: spacetimedb.IndexAlgorithmBTree, Columns: []uint16{1}},
-			{AccessorName: sptr("y"), Algorithm: spacetimedb.IndexAlgorithmBTree, Columns: []uint16{2}},
+			{SourceName: sptr("btree_each_column_u32_u64_u64_id_idx_btree"), AccessorName: sptr("id"), Algorithm: spacetimedb.IndexAlgorithmBTree, Columns: []uint16{0}},
+			{SourceName: sptr("btree_each_column_u32_u64_u64_x_idx_btree"), AccessorName: sptr("x"), Algorithm: spacetimedb.IndexAlgorithmBTree, Columns: []uint16{1}},
+			{SourceName: sptr("btree_each_column_u32_u64_u64_y_idx_btree"), AccessorName: sptr("y"), Algorithm: spacetimedb.IndexAlgorithmBTree, Columns: []uint16{2}},
 		},
 		Access: spacetimedb.TableAccessPublic,
 	})
@@ -99,12 +120,15 @@ func init() {
 		Name: "Entity",
 		Columns: []spacetimedb.ColumnDef{
 			{Name: "id", Type: types.AlgebraicU32},
-			{Name: "position", Type: satVector2},
+			{Name: "position", Type: refVector2},
 			{Name: "mass", Type: types.AlgebraicU32},
 		},
 		PrimaryKey: []uint16{0},
 		Indexes: []spacetimedb.IndexDef{
-			{AccessorName: sptr("id"), Algorithm: spacetimedb.IndexAlgorithmBTree, Columns: []uint16{0}},
+			{SourceName: sptr("Entity_id_idx_btree"), AccessorName: sptr("id"), Algorithm: spacetimedb.IndexAlgorithmBTree, Columns: []uint16{0}},
+		},
+		Constraints: []spacetimedb.ConstraintDef{
+			{SourceName: sptr("Entity_id_unique"), Columns: []uint16{0}},
 		},
 		Sequences: []spacetimedb.SequenceDef{
 			{Column: 0, Increment: 1},
@@ -118,14 +142,17 @@ func init() {
 		Columns: []spacetimedb.ColumnDef{
 			{Name: "entity_id", Type: types.AlgebraicU32},
 			{Name: "player_id", Type: types.AlgebraicU32},
-			{Name: "direction", Type: satVector2},
+			{Name: "direction", Type: refVector2},
 			{Name: "magnitude", Type: types.AlgebraicF32},
 			{Name: "last_split_time", Type: types.AlgebraicTimestamp},
 		},
 		PrimaryKey: []uint16{0},
 		Indexes: []spacetimedb.IndexDef{
-			{AccessorName: sptr("entity_id"), Algorithm: spacetimedb.IndexAlgorithmBTree, Columns: []uint16{0}},
-			{AccessorName: sptr("player_id"), Algorithm: spacetimedb.IndexAlgorithmBTree, Columns: []uint16{1}},
+			{SourceName: sptr("Circle_entity_id_idx_btree"), AccessorName: sptr("entity_id"), Algorithm: spacetimedb.IndexAlgorithmBTree, Columns: []uint16{0}},
+			{SourceName: sptr("Circle_player_id_idx_btree"), AccessorName: sptr("player_id"), Algorithm: spacetimedb.IndexAlgorithmBTree, Columns: []uint16{1}},
+		},
+		Constraints: []spacetimedb.ConstraintDef{
+			{SourceName: sptr("Circle_entity_id_unique"), Columns: []uint16{0}},
 		},
 		Access: spacetimedb.TableAccessPublic,
 	})
@@ -138,7 +165,10 @@ func init() {
 		},
 		PrimaryKey: []uint16{0},
 		Indexes: []spacetimedb.IndexDef{
-			{AccessorName: sptr("entity_id"), Algorithm: spacetimedb.IndexAlgorithmBTree, Columns: []uint16{0}},
+			{SourceName: sptr("Food_entity_id_idx_btree"), AccessorName: sptr("entity_id"), Algorithm: spacetimedb.IndexAlgorithmBTree, Columns: []uint16{0}},
+		},
+		Constraints: []spacetimedb.ConstraintDef{
+			{SourceName: sptr("Food_entity_id_unique"), Columns: []uint16{0}},
 		},
 		Access: spacetimedb.TableAccessPublic,
 	})
@@ -156,7 +186,10 @@ func init() {
 		},
 		PrimaryKey: []uint16{0},
 		Indexes: []spacetimedb.IndexDef{
-			{AccessorName: sptr("entity_id"), Algorithm: spacetimedb.IndexAlgorithmBTree, Columns: []uint16{0}},
+			{SourceName: sptr("Velocity_entity_id_idx_btree"), AccessorName: sptr("entity_id"), Algorithm: spacetimedb.IndexAlgorithmBTree, Columns: []uint16{0}},
+		},
+		Constraints: []spacetimedb.ConstraintDef{
+			{SourceName: sptr("Velocity_entity_id_unique"), Columns: []uint16{0}},
 		},
 		Access: spacetimedb.TableAccessPublic,
 	})
@@ -175,7 +208,10 @@ func init() {
 		},
 		PrimaryKey: []uint16{0},
 		Indexes: []spacetimedb.IndexDef{
-			{AccessorName: sptr("entity_id"), Algorithm: spacetimedb.IndexAlgorithmBTree, Columns: []uint16{0}},
+			{SourceName: sptr("Position_entity_id_idx_btree"), AccessorName: sptr("entity_id"), Algorithm: spacetimedb.IndexAlgorithmBTree, Columns: []uint16{0}},
+		},
+		Constraints: []spacetimedb.ConstraintDef{
+			{SourceName: sptr("Position_entity_id_unique"), Columns: []uint16{0}},
 		},
 		Access: spacetimedb.TableAccessPublic,
 	})
@@ -187,11 +223,14 @@ func init() {
 			{Name: "entity_id", Type: types.AlgebraicU64},
 			{Name: "last_move_timestamps", Type: types.ArrayType{ElemType: types.AlgebraicU64}},
 			{Name: "next_action_timestamp", Type: types.AlgebraicU64},
-			{Name: "action", Type: satAgentAction},
+			{Name: "action", Type: refAgentAction},
 		},
 		PrimaryKey: []uint16{0},
 		Indexes: []spacetimedb.IndexDef{
-			{AccessorName: sptr("entity_id"), Algorithm: spacetimedb.IndexAlgorithmBTree, Columns: []uint16{0}},
+			{SourceName: sptr("GameEnemyAiAgentState_entity_id_idx_btree"), AccessorName: sptr("entity_id"), Algorithm: spacetimedb.IndexAlgorithmBTree, Columns: []uint16{0}},
+		},
+		Constraints: []spacetimedb.ConstraintDef{
+			{SourceName: sptr("GameEnemyAiAgentState_entity_id_unique"), Columns: []uint16{0}},
 		},
 		Access: spacetimedb.TableAccessPublic,
 	})
@@ -205,7 +244,10 @@ func init() {
 		},
 		PrimaryKey: []uint16{0},
 		Indexes: []spacetimedb.IndexDef{
-			{AccessorName: sptr("entity_id"), Algorithm: spacetimedb.IndexAlgorithmBTree, Columns: []uint16{0}},
+			{SourceName: sptr("GameTargetableState_entity_id_idx_btree"), AccessorName: sptr("entity_id"), Algorithm: spacetimedb.IndexAlgorithmBTree, Columns: []uint16{0}},
+		},
+		Constraints: []spacetimedb.ConstraintDef{
+			{SourceName: sptr("GameTargetableState_entity_id_unique"), Columns: []uint16{0}},
 		},
 		Access: spacetimedb.TableAccessPublic,
 	})
@@ -218,11 +260,11 @@ func init() {
 			{Name: "quad", Type: types.AlgebraicI64},
 		},
 		Indexes: []spacetimedb.IndexDef{
-			{AccessorName: sptr("entity_id"), Algorithm: spacetimedb.IndexAlgorithmBTree, Columns: []uint16{0}},
-			{AccessorName: sptr("quad"), Algorithm: spacetimedb.IndexAlgorithmBTree, Columns: []uint16{1}},
+			{SourceName: sptr("GameLiveTargetableState_entity_id_idx_btree"), AccessorName: sptr("entity_id"), Algorithm: spacetimedb.IndexAlgorithmBTree, Columns: []uint16{0}},
+			{SourceName: sptr("GameLiveTargetableState_quad_idx_btree"), AccessorName: sptr("quad"), Algorithm: spacetimedb.IndexAlgorithmBTree, Columns: []uint16{1}},
 		},
 		Constraints: []spacetimedb.ConstraintDef{
-			{Columns: []uint16{0}}, // unique entity_id
+			{SourceName: sptr("GameLiveTargetableState_entity_id_unique"), Columns: []uint16{0}},
 		},
 		Access: spacetimedb.TableAccessPublic,
 	})
@@ -238,8 +280,11 @@ func init() {
 		},
 		PrimaryKey: []uint16{0},
 		Indexes: []spacetimedb.IndexDef{
-			{AccessorName: sptr("entity_id"), Algorithm: spacetimedb.IndexAlgorithmBTree, Columns: []uint16{0}},
-			{AccessorName: sptr("location_x"), Algorithm: spacetimedb.IndexAlgorithmBTree, Columns: []uint16{1}},
+			{SourceName: sptr("GameMobileEntityState_entity_id_idx_btree"), AccessorName: sptr("entity_id"), Algorithm: spacetimedb.IndexAlgorithmBTree, Columns: []uint16{0}},
+			{SourceName: sptr("GameMobileEntityState_location_x_idx_btree"), AccessorName: sptr("location_x"), Algorithm: spacetimedb.IndexAlgorithmBTree, Columns: []uint16{1}},
+		},
+		Constraints: []spacetimedb.ConstraintDef{
+			{SourceName: sptr("GameMobileEntityState_entity_id_unique"), Columns: []uint16{0}},
 		},
 		Access: spacetimedb.TableAccessPublic,
 	})
@@ -253,7 +298,10 @@ func init() {
 		},
 		PrimaryKey: []uint16{0},
 		Indexes: []spacetimedb.IndexDef{
-			{AccessorName: sptr("entity_id"), Algorithm: spacetimedb.IndexAlgorithmBTree, Columns: []uint16{0}},
+			{SourceName: sptr("GameEnemyState_entity_id_idx_btree"), AccessorName: sptr("entity_id"), Algorithm: spacetimedb.IndexAlgorithmBTree, Columns: []uint16{0}},
+		},
+		Constraints: []spacetimedb.ConstraintDef{
+			{SourceName: sptr("GameEnemyState_entity_id_unique"), Columns: []uint16{0}},
 		},
 		Access: spacetimedb.TableAccessPublic,
 	})
@@ -265,17 +313,57 @@ func init() {
 			{Name: "id", Type: types.AlgebraicI32},
 			{Name: "dimension_id", Type: types.AlgebraicU32},
 			{Name: "current_population", Type: types.AlgebraicI32},
-			{Name: "location", Type: satSmallHexTile},
+			{Name: "location", Type: refSmallHexTile},
 			{Name: "max_population", Type: types.AlgebraicI32},
 			{Name: "spawn_eagerness", Type: types.AlgebraicF32},
 			{Name: "roaming_distance", Type: types.AlgebraicI32},
 		},
 		PrimaryKey: []uint16{0},
 		Indexes: []spacetimedb.IndexDef{
-			{AccessorName: sptr("id"), Algorithm: spacetimedb.IndexAlgorithmBTree, Columns: []uint16{0}},
+			{SourceName: sptr("GameHerdCache_id_idx_btree"), AccessorName: sptr("id"), Algorithm: spacetimedb.IndexAlgorithmBTree, Columns: []uint16{0}},
+		},
+		Constraints: []spacetimedb.ConstraintDef{
+			{SourceName: sptr("GameHerdCache_id_unique"), Columns: []uint16{0}},
 		},
 		Access: spacetimedb.TableAccessPublic,
 	})
+
+	// ── Register custom types in typespace ────────────────────────────────
+	// These must be registered AFTER all table registrations because the
+	// typespace indices are offset by numTables.
+
+	_ = spacetimedb.RegisterTypespaceType(satVector2)     // index 17
+	_ = spacetimedb.RegisterTypespaceType(satAgentAction)  // index 18
+	_ = spacetimedb.RegisterTypespaceType(satSmallHexTile) // index 19
+	_ = spacetimedb.RegisterTypespaceType(satU32U64Str)    // index 20
+	_ = spacetimedb.RegisterTypespaceType(satU32U64U64)    // index 21
+
+	// ── Register named type exports for client code generation ────────────
+	// Table row types (indices 0..numTables-1):
+	// Fields not in alphabetical order need CustomOrdering: true.
+	spacetimedb.RegisterTypeDef(spacetimedb.TypeDef{Name: "unique_0_u32_u64_str", TypeRef: 0, CustomOrdering: true})       // id, age, name
+	spacetimedb.RegisterTypeDef(spacetimedb.TypeDef{Name: "no_index_u32_u64_str", TypeRef: 1, CustomOrdering: true})       // id, age, name
+	spacetimedb.RegisterTypeDef(spacetimedb.TypeDef{Name: "btree_each_column_u32_u64_str", TypeRef: 2, CustomOrdering: true}) // id, age, name
+	spacetimedb.RegisterTypeDef(spacetimedb.TypeDef{Name: "unique_0_u32_u64_u64", TypeRef: 3})                             // id, x, y (alphabetical)
+	spacetimedb.RegisterTypeDef(spacetimedb.TypeDef{Name: "no_index_u32_u64_u64", TypeRef: 4})                             // id, x, y (alphabetical)
+	spacetimedb.RegisterTypeDef(spacetimedb.TypeDef{Name: "btree_each_column_u32_u64_u64", TypeRef: 5})                    // id, x, y (alphabetical)
+	spacetimedb.RegisterTypeDef(spacetimedb.TypeDef{Name: "Entity", TypeRef: 6, CustomOrdering: true})                     // id, position, mass
+	spacetimedb.RegisterTypeDef(spacetimedb.TypeDef{Name: "Circle", TypeRef: 7, CustomOrdering: true})                     // entity_id, player_id, direction, ...
+	spacetimedb.RegisterTypeDef(spacetimedb.TypeDef{Name: "Food", TypeRef: 8})                                             // entity_id (single field)
+	spacetimedb.RegisterTypeDef(spacetimedb.TypeDef{Name: "Velocity", TypeRef: 9})                                         // entity_id, x, y, z (alphabetical)
+	spacetimedb.RegisterTypeDef(spacetimedb.TypeDef{Name: "Position", TypeRef: 10, CustomOrdering: true})                  // entity_id, x, y, z, vx, vy, vz
+	spacetimedb.RegisterTypeDef(spacetimedb.TypeDef{Name: "GameEnemyAiAgentState", TypeRef: 11, CustomOrdering: true})     // entity_id, ..., action
+	spacetimedb.RegisterTypeDef(spacetimedb.TypeDef{Name: "GameTargetableState", TypeRef: 12})                             // entity_id, quad (alphabetical)
+	spacetimedb.RegisterTypeDef(spacetimedb.TypeDef{Name: "GameLiveTargetableState", TypeRef: 13})                         // entity_id, quad (alphabetical)
+	spacetimedb.RegisterTypeDef(spacetimedb.TypeDef{Name: "GameMobileEntityState", TypeRef: 14})                           // entity_id, location_x, location_y, timestamp (alphabetical)
+	spacetimedb.RegisterTypeDef(spacetimedb.TypeDef{Name: "GameEnemyState", TypeRef: 15})                                  // entity_id, herd_id (alphabetical)
+	spacetimedb.RegisterTypeDef(spacetimedb.TypeDef{Name: "GameHerdCache", TypeRef: 16, CustomOrdering: true})             // id, dimension_id, current_population, ...
+	// Custom types:
+	spacetimedb.RegisterTypeDef(spacetimedb.TypeDef{Name: "Vector2", TypeRef: numTables + 0})                              // x, y (alphabetical)
+	spacetimedb.RegisterTypeDef(spacetimedb.TypeDef{Name: "AgentAction", TypeRef: numTables + 1, CustomOrdering: true})    // Inactive, Idle, Evading, ... (not alphabetical)
+	spacetimedb.RegisterTypeDef(spacetimedb.TypeDef{Name: "SmallHexTile", TypeRef: numTables + 2, CustomOrdering: true})   // x, z, dimension (not alphabetical)
+	spacetimedb.RegisterTypeDef(spacetimedb.TypeDef{Name: "U32U64Str", TypeRef: numTables + 3, CustomOrdering: true})      // id, age, name (not alphabetical)
+	spacetimedb.RegisterTypeDef(spacetimedb.TypeDef{Name: "U32U64U64", TypeRef: numTables + 4})                            // id, x, y (alphabetical)
 
 	// ── Synthetic Reducers ─────────────────────────────────────────────────
 
@@ -354,7 +442,7 @@ func init() {
 	spacetimedb.RegisterReducerDef(spacetimedb.ReducerDef{
 		Name: "insert_bulk_unique_0_u32_u64_u64",
 		Params: []spacetimedb.ColumnDef{
-			{Name: "locs", Type: types.ArrayType{ElemType: satU32U64U64}},
+			{Name: "locs", Type: types.ArrayType{ElemType: refU32U64U64}},
 		},
 		Visibility: spacetimedb.ReducerVisibilityClientCallable,
 	})
@@ -363,7 +451,7 @@ func init() {
 	spacetimedb.RegisterReducerDef(spacetimedb.ReducerDef{
 		Name: "insert_bulk_no_index_u32_u64_u64",
 		Params: []spacetimedb.ColumnDef{
-			{Name: "locs", Type: types.ArrayType{ElemType: satU32U64U64}},
+			{Name: "locs", Type: types.ArrayType{ElemType: refU32U64U64}},
 		},
 		Visibility: spacetimedb.ReducerVisibilityClientCallable,
 	})
@@ -372,7 +460,7 @@ func init() {
 	spacetimedb.RegisterReducerDef(spacetimedb.ReducerDef{
 		Name: "insert_bulk_btree_each_column_u32_u64_u64",
 		Params: []spacetimedb.ColumnDef{
-			{Name: "locs", Type: types.ArrayType{ElemType: satU32U64U64}},
+			{Name: "locs", Type: types.ArrayType{ElemType: refU32U64U64}},
 		},
 		Visibility: spacetimedb.ReducerVisibilityClientCallable,
 	})
@@ -381,7 +469,7 @@ func init() {
 	spacetimedb.RegisterReducerDef(spacetimedb.ReducerDef{
 		Name: "insert_bulk_unique_0_u32_u64_str",
 		Params: []spacetimedb.ColumnDef{
-			{Name: "people", Type: types.ArrayType{ElemType: satU32U64Str}},
+			{Name: "people", Type: types.ArrayType{ElemType: refU32U64Str}},
 		},
 		Visibility: spacetimedb.ReducerVisibilityClientCallable,
 	})
@@ -390,7 +478,7 @@ func init() {
 	spacetimedb.RegisterReducerDef(spacetimedb.ReducerDef{
 		Name: "insert_bulk_no_index_u32_u64_str",
 		Params: []spacetimedb.ColumnDef{
-			{Name: "people", Type: types.ArrayType{ElemType: satU32U64Str}},
+			{Name: "people", Type: types.ArrayType{ElemType: refU32U64Str}},
 		},
 		Visibility: spacetimedb.ReducerVisibilityClientCallable,
 	})
@@ -399,7 +487,7 @@ func init() {
 	spacetimedb.RegisterReducerDef(spacetimedb.ReducerDef{
 		Name: "insert_bulk_btree_each_column_u32_u64_str",
 		Params: []spacetimedb.ColumnDef{
-			{Name: "people", Type: types.ArrayType{ElemType: satU32U64Str}},
+			{Name: "people", Type: types.ArrayType{ElemType: refU32U64Str}},
 		},
 		Visibility: spacetimedb.ReducerVisibilityClientCallable,
 	})
