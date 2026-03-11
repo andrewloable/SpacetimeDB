@@ -6,7 +6,6 @@ import (
 
 	spacetimedb "github.com/clockworklabs/spacetimedb-go-server"
 	"github.com/clockworklabs/spacetimedb-go-server/sys"
-	"github.com/clockworklabs/spacetimedb-go/bsatn"
 )
 
 func massToRadius(mass uint32) float32 {
@@ -27,27 +26,29 @@ func isOverlapping(e1, e2 Entity) bool {
 }
 
 func insertBulkEntity(count uint32) {
+	tid, _ := sys.TableIdFromName("entity")
 	for id := uint32(0); id < count; id++ {
 		e := Entity{
 			Id:       0, // auto_inc
 			Position: Vector2{X: float32(id), Y: float32(id + 5)},
 			Mass:     id * 5,
 		}
-		if _, err := entityHandle.Insert(e); err != nil {
-			spacetimedb.LogPanic("insert_bulk_entity: " + err.Error())
-		}
+		bulkWriter.Reset()
+		encodeEntity(bulkWriter, e)
+		_, _ = sys.InsertBsatnReuse(tid, bulkWriter.Bytes())
 	}
 	spacetimedb.LogInfo(fmt.Sprintf("INSERT ENTITY: %d", count))
 }
 
 func insertBulkEntityReducer(_ spacetimedb.ReducerContext, args sys.BytesSource) {
-	data, _ := sys.ReadBytesSource(args)
-	r := bsatn.NewReader(data)
+	data, _ := sys.ReadBytesSourceReuse(args)
+	r := reuseReader(data)
 	count, _ := r.ReadU32()
 	insertBulkEntity(count)
 }
 
 func insertBulkCircle(ctx spacetimedb.ReducerContext, count uint32) {
+	tid, _ := sys.TableIdFromName("circle")
 	for id := uint32(0); id < count; id++ {
 		c := Circle{
 			EntityId:      id,
@@ -56,32 +57,33 @@ func insertBulkCircle(ctx spacetimedb.ReducerContext, count uint32) {
 			Magnitude:     float32(id * 5),
 			LastSplitTime: ctx.Timestamp,
 		}
-		if _, err := circleHandle.Insert(c); err != nil {
-			spacetimedb.LogPanic("insert_bulk_circle: " + err.Error())
-		}
+		bulkWriter.Reset()
+		encodeCircle(bulkWriter, c)
+		_, _ = sys.InsertBsatnReuse(tid, bulkWriter.Bytes())
 	}
 	spacetimedb.LogInfo(fmt.Sprintf("INSERT CIRCLE: %d", count))
 }
 
 func insertBulkCircleReducer(ctx spacetimedb.ReducerContext, args sys.BytesSource) {
-	data, _ := sys.ReadBytesSource(args)
-	r := bsatn.NewReader(data)
+	data, _ := sys.ReadBytesSourceReuse(args)
+	r := reuseReader(data)
 	count, _ := r.ReadU32()
 	insertBulkCircle(ctx, count)
 }
 
 func insertBulkFood(count uint32) {
+	tid, _ := sys.TableIdFromName("food")
 	for id := uint32(1); id <= count; id++ {
-		if _, err := foodHandle.Insert(Food{EntityId: id}); err != nil {
-			spacetimedb.LogPanic("insert_bulk_food: " + err.Error())
-		}
+		bulkWriter.Reset()
+		encodeFood(bulkWriter, Food{EntityId: id})
+		_, _ = sys.InsertBsatnReuse(tid, bulkWriter.Bytes())
 	}
 	spacetimedb.LogInfo(fmt.Sprintf("INSERT FOOD: %d", count))
 }
 
 func insertBulkFoodReducer(_ spacetimedb.ReducerContext, args sys.BytesSource) {
-	data, _ := sys.ReadBytesSource(args)
-	r := bsatn.NewReader(data)
+	data, _ := sys.ReadBytesSourceReuse(args)
+	r := reuseReader(data)
 	count, _ := r.ReadU32()
 	insertBulkFood(count)
 }
@@ -108,8 +110,8 @@ func crossJoinAll(expected uint32) {
 }
 
 func crossJoinAllReducer(_ spacetimedb.ReducerContext, args sys.BytesSource) {
-	data, _ := sys.ReadBytesSource(args)
-	r := bsatn.NewReader(data)
+	data, _ := sys.ReadBytesSourceReuse(args)
+	r := reuseReader(data)
 	expected, _ := r.ReadU32()
 	crossJoinAll(expected)
 }
@@ -140,15 +142,15 @@ func crossJoinCircleFood(expected uint32) {
 }
 
 func crossJoinCircleFoodReducer(_ spacetimedb.ReducerContext, args sys.BytesSource) {
-	data, _ := sys.ReadBytesSource(args)
-	r := bsatn.NewReader(data)
+	data, _ := sys.ReadBytesSourceReuse(args)
+	r := reuseReader(data)
 	expected, _ := r.ReadU32()
 	crossJoinCircleFood(expected)
 }
 
 func initGameCirclesReducer(ctx spacetimedb.ReducerContext, args sys.BytesSource) {
-	data, _ := sys.ReadBytesSource(args)
-	r := bsatn.NewReader(data)
+	data, _ := sys.ReadBytesSourceReuse(args)
+	r := reuseReader(data)
 	initialLoad, _ := r.ReadU32()
 	l := newLoad(initialLoad)
 
@@ -158,8 +160,8 @@ func initGameCirclesReducer(ctx spacetimedb.ReducerContext, args sys.BytesSource
 }
 
 func runGameCirclesReducer(_ spacetimedb.ReducerContext, args sys.BytesSource) {
-	data, _ := sys.ReadBytesSource(args)
-	r := bsatn.NewReader(data)
+	data, _ := sys.ReadBytesSourceReuse(args)
+	r := reuseReader(data)
 	initialLoad, _ := r.ReadU32()
 	l := newLoad(initialLoad)
 

@@ -5,7 +5,6 @@ import (
 
 	spacetimedb "github.com/clockworklabs/spacetimedb-go-server"
 	"github.com/clockworklabs/spacetimedb-go-server/sys"
-	"github.com/clockworklabs/spacetimedb-go/bsatn"
 )
 
 func momentMilliseconds() uint64 {
@@ -115,6 +114,7 @@ func getTargetablesNearQuad(entityId, numPlayers uint64) []GameTargetableState {
 }
 
 func insertBulkPosition(count uint32) {
+	tid, _ := sys.TableIdFromName("position")
 	for id := uint32(0); id < count; id++ {
 		x := float32(id)
 		y := float32(id + 5)
@@ -128,21 +128,22 @@ func insertBulkPosition(count uint32) {
 			Vy:       y + 20.0,
 			Vz:       z + 30.0,
 		}
-		if _, err := positionHandle.Insert(p); err != nil {
-			spacetimedb.LogPanic("insert_bulk_position: " + err.Error())
-		}
+		bulkWriter.Reset()
+		encodePosition(bulkWriter, p)
+		_, _ = sys.InsertBsatnReuse(tid, bulkWriter.Bytes())
 	}
 	spacetimedb.LogInfo(fmt.Sprintf("INSERT POSITION: %d", count))
 }
 
 func insertBulkPositionReducer(_ spacetimedb.ReducerContext, args sys.BytesSource) {
-	data, _ := sys.ReadBytesSource(args)
-	r := bsatn.NewReader(data)
+	data, _ := sys.ReadBytesSourceReuse(args)
+	r := reuseReader(data)
 	count, _ := r.ReadU32()
 	insertBulkPosition(count)
 }
 
 func insertBulkVelocity(count uint32) {
+	tid, _ := sys.TableIdFromName("velocity")
 	for id := uint32(0); id < count; id++ {
 		v := Velocity{
 			EntityId: id,
@@ -150,16 +151,16 @@ func insertBulkVelocity(count uint32) {
 			Y:        float32(id + 5),
 			Z:        float32(id * 5),
 		}
-		if _, err := velocityHandle.Insert(v); err != nil {
-			spacetimedb.LogPanic("insert_bulk_velocity: " + err.Error())
-		}
+		bulkWriter.Reset()
+		encodeVelocity(bulkWriter, v)
+		_, _ = sys.InsertBsatnReuse(tid, bulkWriter.Bytes())
 	}
 	spacetimedb.LogInfo(fmt.Sprintf("INSERT VELOCITY: %d", count))
 }
 
 func insertBulkVelocityReducer(_ spacetimedb.ReducerContext, args sys.BytesSource) {
-	data, _ := sys.ReadBytesSource(args)
-	r := bsatn.NewReader(data)
+	data, _ := sys.ReadBytesSourceReuse(args)
+	r := reuseReader(data)
 	count, _ := r.ReadU32()
 	insertBulkVelocity(count)
 }
@@ -180,8 +181,8 @@ func updatePositionAll(expected uint32) {
 }
 
 func updatePositionAllReducer(_ spacetimedb.ReducerContext, args sys.BytesSource) {
-	data, _ := sys.ReadBytesSource(args)
-	r := bsatn.NewReader(data)
+	data, _ := sys.ReadBytesSourceReuse(args)
+	r := reuseReader(data)
 	expected, _ := r.ReadU32()
 	updatePositionAll(expected)
 }
@@ -206,13 +207,20 @@ func updatePositionWithVelocity(expected uint32) {
 }
 
 func updatePositionWithVelocityReducer(_ spacetimedb.ReducerContext, args sys.BytesSource) {
-	data, _ := sys.ReadBytesSource(args)
-	r := bsatn.NewReader(data)
+	data, _ := sys.ReadBytesSourceReuse(args)
+	r := reuseReader(data)
 	expected, _ := r.ReadU32()
 	updatePositionWithVelocity(expected)
 }
 
 func insertWorld(players uint64) {
+	tidAgent, _ := sys.TableIdFromName("game_enemy_ai_agent_state")
+	tidLive, _ := sys.TableIdFromName("game_live_targetable_state")
+	tidTarget, _ := sys.TableIdFromName("game_targetable_state")
+	tidMobile, _ := sys.TableIdFromName("game_mobile_entity_state")
+	tidEnemy, _ := sys.TableIdFromName("game_enemy_state")
+	tidHerd, _ := sys.TableIdFromName("game_herd_cache")
+
 	for i := uint64(0); i < players; i++ {
 		id := i
 		var nextActionTimestamp uint64
@@ -222,31 +230,47 @@ func insertWorld(players uint64) {
 			nextActionTimestamp = momentMilliseconds()
 		}
 
-		_, _ = gameEnemyAiAgentStateHandle.Insert(GameEnemyAiAgentState{
+		bulkWriter.Reset()
+		encodeGameEnemyAiAgentState(bulkWriter, GameEnemyAiAgentState{
 			EntityId:            id,
 			LastMoveTimestamps:  []uint64{id, 0, id * 2},
 			NextActionTimestamp: nextActionTimestamp,
 			Action:              AgentActionIdle,
 		})
-		_, _ = gameLiveTargetableStateHandle.Insert(GameLiveTargetableState{
+		_, _ = sys.InsertBsatnReuse(tidAgent, bulkWriter.Bytes())
+
+		bulkWriter.Reset()
+		encodeGameLiveTargetableState(bulkWriter, GameLiveTargetableState{
 			EntityId: id,
 			Quad:     int64(id),
 		})
-		_, _ = gameTargetableStateHandle.Insert(GameTargetableState{
+		_, _ = sys.InsertBsatnReuse(tidLive, bulkWriter.Bytes())
+
+		bulkWriter.Reset()
+		encodeGameTargetableState(bulkWriter, GameTargetableState{
 			EntityId: id,
 			Quad:     int64(id),
 		})
-		_, _ = gameMobileEntityStateHandle.Insert(GameMobileEntityState{
+		_, _ = sys.InsertBsatnReuse(tidTarget, bulkWriter.Bytes())
+
+		bulkWriter.Reset()
+		encodeGameMobileEntityState(bulkWriter, GameMobileEntityState{
 			EntityId:  id,
 			LocationX: int32(id),
 			LocationY: int32(id),
 			Timestamp: nextActionTimestamp,
 		})
-		_, _ = gameEnemyStateHandle.Insert(GameEnemyState{
+		_, _ = sys.InsertBsatnReuse(tidMobile, bulkWriter.Bytes())
+
+		bulkWriter.Reset()
+		encodeGameEnemyState(bulkWriter, GameEnemyState{
 			EntityId: id,
 			HerdId:   int32(id),
 		})
-		_, _ = gameHerdCacheHandle.Insert(GameHerdCache{
+		_, _ = sys.InsertBsatnReuse(tidEnemy, bulkWriter.Bytes())
+
+		bulkWriter.Reset()
+		encodeGameHerdCache(bulkWriter, GameHerdCache{
 			Id:                int32(id),
 			DimensionId:       uint32(id),
 			CurrentPopulation: int32(id) * 2,
@@ -259,13 +283,14 @@ func insertWorld(players uint64) {
 				Dimension: uint32(id) * 2,
 			},
 		})
+		_, _ = sys.InsertBsatnReuse(tidHerd, bulkWriter.Bytes())
 	}
 	spacetimedb.LogInfo(fmt.Sprintf("INSERT WORLD PLAYERS: %d", players))
 }
 
 func insertWorldReducer(_ spacetimedb.ReducerContext, args sys.BytesSource) {
-	data, _ := sys.ReadBytesSource(args)
-	r := bsatn.NewReader(data)
+	data, _ := sys.ReadBytesSourceReuse(args)
+	r := reuseReader(data)
 	players, _ := r.ReadU64()
 	insertWorld(players)
 }
@@ -294,15 +319,15 @@ func gameLoopEnemyIa(players uint64) {
 }
 
 func gameLoopEnemyIaReducer(_ spacetimedb.ReducerContext, args sys.BytesSource) {
-	data, _ := sys.ReadBytesSource(args)
-	r := bsatn.NewReader(data)
+	data, _ := sys.ReadBytesSourceReuse(args)
+	r := reuseReader(data)
 	players, _ := r.ReadU64()
 	gameLoopEnemyIa(players)
 }
 
 func initGameIaLoopReducer(_ spacetimedb.ReducerContext, args sys.BytesSource) {
-	data, _ := sys.ReadBytesSource(args)
-	r := bsatn.NewReader(data)
+	data, _ := sys.ReadBytesSourceReuse(args)
+	r := reuseReader(data)
 	initialLoad, _ := r.ReadU32()
 	l := newLoad(initialLoad)
 
@@ -314,8 +339,8 @@ func initGameIaLoopReducer(_ spacetimedb.ReducerContext, args sys.BytesSource) {
 }
 
 func runGameIaLoopReducer(_ spacetimedb.ReducerContext, args sys.BytesSource) {
-	data, _ := sys.ReadBytesSource(args)
-	r := bsatn.NewReader(data)
+	data, _ := sys.ReadBytesSourceReuse(args)
+	r := reuseReader(data)
 	initialLoad, _ := r.ReadU32()
 	l := newLoad(initialLoad)
 

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"math"
 	"unicode/utf8"
+	"unsafe"
 )
 
 // Errors returned by Reader methods.
@@ -24,6 +25,14 @@ type Reader struct {
 // NewReader returns a Reader over data.
 func NewReader(data []byte) *Reader {
 	return &Reader{data: data}
+}
+
+// Reset re-initializes the Reader to decode from new data without allocating.
+// This allows reuse of a package-level Reader in hot loops to avoid GC pressure
+// in TinyGo WASM where every heap allocation is costly.
+func (r *Reader) Reset(data []byte) {
+	r.data = data
+	r.pos = 0
 }
 
 // Remaining returns the number of bytes not yet consumed.
@@ -219,4 +228,56 @@ func (r *Reader) ReadVariantTag() (uint8, error) {
 // ReadArrayLen reads the element count prefix of an Array type.
 func (r *Reader) ReadArrayLen() (uint32, error) {
 	return r.ReadU32()
+}
+
+// Offset returns the current read position in the data buffer.
+func (r *Reader) Offset() int {
+	return r.pos
+}
+
+// Skip advances past n bytes without reading them.
+func (r *Reader) Skip(n int) error {
+	if err := r.require(n); err != nil {
+		return err
+	}
+	r.pos += n
+	return nil
+}
+
+// SkipString advances past a u32 length-prefixed string without allocating.
+func (r *Reader) SkipString() error {
+	length, err := r.ReadU32()
+	if err != nil {
+		return err
+	}
+	return r.Skip(int(length))
+}
+
+// RawSlice returns the underlying data slice from start to end.
+// The returned slice aliases the reader's data and must not be modified.
+func (r *Reader) RawSlice(start, end int) []byte {
+	return r.data[start:end]
+}
+
+// ReadStringZeroCopy reads a length-prefixed UTF-8 string without allocating.
+// The returned string aliases the reader's underlying buffer and is only valid
+// until the buffer is reused. Use this in hot paths where the string value is
+// not stored beyond the current scope.
+func (r *Reader) ReadStringZeroCopy() (string, error) {
+	length, err := r.ReadU32()
+	if err != nil {
+		return "", err
+	}
+	if err := r.require(int(length)); err != nil {
+		return "", err
+	}
+	b := r.data[r.pos : r.pos+int(length)]
+	r.pos += int(length)
+	if !utf8.Valid(b) {
+		return "", ErrInvalidUTF8
+	}
+	if len(b) == 0 {
+		return "", nil
+	}
+	return unsafe.String(&b[0], len(b)), nil
 }
