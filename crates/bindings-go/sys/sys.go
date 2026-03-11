@@ -21,17 +21,15 @@ import "unsafe"
 
 // TableIdFromName resolves a table name to its numeric TableId.
 func TableIdFromName(name string) (TableId, error) {
-	b := []byte(name)
 	var id TableId
-	ret := rawTableIdFromName(unsafe.Pointer(&b[0]), uint32(len(b)), unsafe.Pointer(&id))
+	ret := rawTableIdFromName(unsafe.Pointer(unsafe.StringData(name)), uint32(len(name)), unsafe.Pointer(&id))
 	return id, checkErr(ret)
 }
 
 // IndexIdFromName resolves an index name to its numeric IndexId.
 func IndexIdFromName(name string) (IndexId, error) {
-	b := []byte(name)
 	var id IndexId
-	ret := rawIndexIdFromName(unsafe.Pointer(&b[0]), uint32(len(b)), unsafe.Pointer(&id))
+	ret := rawIndexIdFromName(unsafe.Pointer(unsafe.StringData(name)), uint32(len(name)), unsafe.Pointer(&id))
 	return id, checkErr(ret)
 }
 
@@ -108,7 +106,9 @@ func RowIterAdvance(iter RowIter, buf []byte) (uint32, bool, error) {
 	case 0:
 		return bufLen, false, nil
 	default:
-		return 0, false, Errno(uint32(ret))
+		// On BUFFER_TOO_SMALL, the host writes the required size into bufLen.
+		// Return bufLen so callers can resize their buffer accordingly.
+		return bufLen, false, Errno(uint32(ret))
 	}
 }
 
@@ -140,6 +140,37 @@ func CollectIter(iter RowIter) ([]byte, error) {
 	}
 }
 
+// collectIterResult and collectIterBuf are reusable buffers for CollectIterReuse.
+var (
+	collectIterResult []byte
+	collectIterBuf    []byte
+)
+
+// CollectIterReuse reads all BSATN bytes from iter, reusing internal buffers
+// to avoid per-call allocations. The returned slice is only valid until the
+// next call to CollectIterReuse.
+func CollectIterReuse(iter RowIter) ([]byte, error) {
+	if collectIterBuf == nil {
+		collectIterBuf = make([]byte, 4096)
+	}
+	collectIterResult = collectIterResult[:0]
+	for {
+		n, exhausted, err := RowIterAdvance(iter, collectIterBuf)
+		if err != nil {
+			if err == ErrBufferTooSmall {
+				collectIterBuf = make([]byte, n)
+				continue
+			}
+			_ = RowIterClose(iter)
+			return nil, err
+		}
+		collectIterResult = append(collectIterResult, collectIterBuf[:n]...)
+		if exhausted {
+			return collectIterResult, nil
+		}
+	}
+}
+
 // InsertBsatn inserts a BSATN-encoded row into the given table.
 // On success, the returned slice may contain auto-generated column values.
 func InsertBsatn(tableId TableId, row []byte) ([]byte, error) {
@@ -153,6 +184,31 @@ func InsertBsatn(tableId TableId, row []byte) ([]byte, error) {
 		return nil, err
 	}
 	return buf[:bufLen], nil
+}
+
+// insertReuseBuf is a package-level buffer reused by InsertBsatnReuse to avoid
+// per-call allocations in tight loops (important for TinyGo WASM where GC can't
+// keep up with high allocation rates).
+var insertReuseBuf []byte
+
+// InsertBsatnReuse inserts a BSATN-encoded row, reusing an internal buffer to
+// avoid allocating on every call. The returned slice is only valid until the
+// next call to InsertBsatnReuse.
+func InsertBsatnReuse(tableId TableId, row []byte) ([]byte, error) {
+	if len(row) == 0 {
+		return row, nil
+	}
+	if cap(insertReuseBuf) < len(row) {
+		insertReuseBuf = make([]byte, len(row))
+	}
+	insertReuseBuf = insertReuseBuf[:len(row)]
+	copy(insertReuseBuf, row)
+	bufLen := uint32(len(insertReuseBuf))
+	ret := rawDatastoreInsertBsatn(tableId, unsafe.Pointer(&insertReuseBuf[0]), unsafe.Pointer(&bufLen))
+	if err := checkErr(ret); err != nil {
+		return nil, err
+	}
+	return insertReuseBuf[:bufLen], nil
 }
 
 // UpdateBsatn updates a row identified by the unique index.
@@ -187,6 +243,53 @@ func ReadBytesSource(source BytesSource) ([]byte, error) {
 		default:
 			return nil, Errno(uint32(ret))
 		}
+	}
+}
+
+// reusableReadBuf is a package-level buffer reused by ReadBytesSourceReuse.
+var reusableReadBuf []byte
+
+// ReadBytesSourceReuse reads all bytes from a BytesSource using a reusable
+// internal buffer. The returned slice is only valid until the next call.
+// Uses BytesSourceRemainingLength to allocate exactly once.
+func ReadBytesSourceReuse(source BytesSource) ([]byte, error) {
+	remaining, err := BytesSourceRemainingLength(source)
+	if err != nil {
+		return ReadBytesSource(source)
+	}
+	if uint32(cap(reusableReadBuf)) < remaining {
+		reusableReadBuf = make([]byte, remaining)
+	}
+	reusableReadBuf = reusableReadBuf[:remaining]
+	if remaining == 0 {
+		// Still need to consume the source.
+		var dummy [1]byte
+		bufLen := uint32(0)
+		rawBytesSourceRead(source, unsafe.Pointer(&dummy[0]), unsafe.Pointer(&bufLen))
+		return reusableReadBuf[:0], nil
+	}
+	bufLen := remaining
+	ret := rawBytesSourceRead(source, unsafe.Pointer(&reusableReadBuf[0]), unsafe.Pointer(&bufLen))
+	switch ret {
+	case -1:
+		return reusableReadBuf[:bufLen], nil
+	case 0:
+		// Partial read; unlikely with correctly sized buffer. Append remainder.
+		result := reusableReadBuf[:bufLen]
+		for {
+			extra := make([]byte, 1024)
+			extraLen := uint32(len(extra))
+			ret2 := rawBytesSourceRead(source, unsafe.Pointer(&extra[0]), unsafe.Pointer(&extraLen))
+			result = append(result, extra[:extraLen]...)
+			if ret2 == -1 {
+				return result, nil
+			}
+			if ret2 != 0 {
+				return nil, Errno(uint32(ret2))
+			}
+		}
+	default:
+		return nil, Errno(uint32(ret))
 	}
 }
 

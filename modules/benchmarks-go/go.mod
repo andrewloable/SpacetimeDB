@@ -8,6 +8,6 @@ require (
 )
 
 replace (
-	github.com/clockworklabs/spacetimedb-go => ../../sdks/go
-	github.com/clockworklabs/spacetimedb-go-server => ../../crates/bindings-go
+	github.com/clockworklabs/spacetimedb-go => /Users/andrewloable/Library/Caches/spacetimedb/go-sdk/sdks-go
+	github.com/clockworklabs/spacetimedb-go-server => /Users/andrewloable/Library/Caches/spacetimedb/go-sdk/bindings-go
 )

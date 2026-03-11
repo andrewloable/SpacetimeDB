@@ -118,7 +118,7 @@ func (h *TableHandle[Row]) Iter() iter.Seq2[Row, error] {
 // iterRows reads all rows from a RowIter, decoding each with decode and yielding
 // via yield. Stops when yield returns false or the iterator is exhausted.
 func iterRows[Row any](rowIter sys.RowIter, decode func(*bsatn.Reader) (Row, error), yield func(Row, error) bool) {
-	data, err := sys.CollectIter(rowIter)
+	data, err := sys.CollectIterReuse(rowIter)
 	if err != nil {
 		var zero Row
 		yield(zero, err)
