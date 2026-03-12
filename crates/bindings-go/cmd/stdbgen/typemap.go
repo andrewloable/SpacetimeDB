@@ -6,7 +6,16 @@ import (
 )
 
 // ── Type mapping ──────────────────────────────────────────────────────────────
+//
+// These maps translate YAML schema type names (e.g. "U32", "Identity") into
+// Go code fragments used by the template engine to generate:
+//   - SATS AlgebraicType constants (typeMap)
+//   - bsatn.Reader decode calls (readMethod)
+//   - Go type names (goType)
+//   - bsatn.Writer encode calls (writeMethod)
+//   - Special encode patterns for types with WriteBsatn methods (specialWrite)
 
+// typeMap maps schema type names to Go expressions for SATS AlgebraicType constants.
 var typeMap = map[string]string{
 	"String":    "types.AlgebraicString",
 	"Bool":      "types.AlgebraicBool",
@@ -27,6 +36,7 @@ var typeMap = map[string]string{
 	"Timestamp": "types.AlgebraicTimestamp",
 }
 
+// readMethod maps schema type names to Go expressions that read the value from a bsatn.Reader.
 var readMethod = map[string]string{
 	"String":    "r.ReadString()",
 	"Bool":      "r.ReadBool()",
@@ -45,6 +55,7 @@ var readMethod = map[string]string{
 	"Timestamp": "types.ReadTimestamp(r)",
 }
 
+// goType maps schema type names to their Go type representations.
 var goType = map[string]string{
 	"String":    "string",
 	"Bool":      "bool",
@@ -63,6 +74,8 @@ var goType = map[string]string{
 	"Timestamp": "types.Timestamp",
 }
 
+// writeMethod maps schema type names to bsatn.Writer method call expressions.
+// The writer variable is always named "w" in generated code.
 var writeMethod = map[string]string{
 	"String":    "w.WriteString",
 	"Bool":      "w.WriteBool",
@@ -85,6 +98,8 @@ var specialWrite = map[string]string{
 	"Timestamp": ".WriteBsatn(w)",
 }
 
+// algebraicType returns the Go expression for the SATS AlgebraicType of schema type t.
+// Handles Option<T> by wrapping the inner type in a SumType with "some" and "none" variants.
 func algebraicType(t string) string {
 	if v, ok := typeMap[t]; ok {
 		return v
@@ -98,6 +113,8 @@ func algebraicType(t string) string {
 	return "types.AlgebraicString" // fallback
 }
 
+// goTypeOf returns the Go type string for schema type t.
+// Handles Option<T> by returning a pointer type (*inner).
 func goTypeOf(t string) string {
 	if v, ok := goType[t]; ok {
 		return v
@@ -109,6 +126,8 @@ func goTypeOf(t string) string {
 	return "string" // fallback
 }
 
+// readMethodOf returns the Go expression to read schema type t from a bsatn.Reader.
+// Handles Option<T> by wrapping in bsatn.ReadOption.
 func readMethodOf(t string) string {
 	if v, ok := readMethod[t]; ok {
 		return v
@@ -121,6 +140,7 @@ func readMethodOf(t string) string {
 	return "r.ReadString()"
 }
 
+// writeMethodOf returns the bsatn.Writer method name for schema type t (e.g. "w.WriteU32").
 func writeMethodOf(t string) string {
 	if v, ok := writeMethod[t]; ok {
 		return v
@@ -128,6 +148,8 @@ func writeMethodOf(t string) string {
 	return "w.WriteString"
 }
 
+// specialWriteOf returns the method suffix for types that encode via value.WriteBsatn(w),
+// or empty string for types that use the standard w.WriteXxx(value) pattern.
 func specialWriteOf(t string) string {
 	if v, ok := specialWrite[t]; ok {
 		return v

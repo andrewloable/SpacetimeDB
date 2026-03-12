@@ -274,19 +274,26 @@ func encodeVecU64(w *bsatn.Writer, v []uint64) {
 	}
 }
 
+// decodeVecU64Buf is a package-level buffer reused by decodeVecU64 to avoid
+// per-call heap allocations under TinyGo WASM.
+var decodeVecU64Buf []uint64
+
 func decodeVecU64(r *bsatn.Reader) ([]uint64, error) {
 	n, err := r.ReadArrayLen()
 	if err != nil {
 		return nil, err
 	}
-	result := make([]uint64, n)
-	for i := range result {
-		result[i], err = r.ReadU64()
+	if cap(decodeVecU64Buf) < int(n) {
+		decodeVecU64Buf = make([]uint64, n)
+	}
+	decodeVecU64Buf = decodeVecU64Buf[:n]
+	for i := range decodeVecU64Buf {
+		decodeVecU64Buf[i], err = r.ReadU64()
 		if err != nil {
 			return nil, err
 		}
 	}
-	return result, nil
+	return decodeVecU64Buf, nil
 }
 
 func encodeGameEnemyAiAgentState(w *bsatn.Writer, v GameEnemyAiAgentState) {

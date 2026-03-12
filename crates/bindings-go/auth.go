@@ -77,6 +77,8 @@ type jwtClaimsJSON struct {
 	Audience json.RawMessage `json:"aud"`
 }
 
+// parse lazily deserializes the raw JWT JSON payload into the claims struct.
+// Called automatically by Subject(), Issuer(), and Audience() on first access.
 func (j *JwtClaims) parse() {
 	if j.parsed {
 		return

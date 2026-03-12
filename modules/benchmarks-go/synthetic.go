@@ -1,7 +1,7 @@
 package main
 
 import (
-	"fmt"
+	"strconv"
 
 	spacetimedb "github.com/clockworklabs/spacetimedb-go-server"
 	"github.com/clockworklabs/spacetimedb-go-server/sys"
@@ -219,22 +219,32 @@ func insertBulkBtreeEachColumnU32U64StrReducer(_ spacetimedb.ReducerContext, arg
 
 // ── Update bulk ───────────────────────────────────────────────────────────────
 
+// updateU64Rows and updateStrRows are reusable slices for update_bulk reducers
+// to avoid per-call allocations under TinyGo WASM.
+var (
+	updateU64Rows []Unique0U32U64U64
+	updateStrRows []Unique0U32U64Str
+)
+
 func updateBulkUnique0U32U64U64Reducer(_ spacetimedb.ReducerContext, args sys.BytesSource) {
 	data, _ := sys.ReadBytesSourceReuse(args)
 	r := reuseReader(data)
 	rowCount, _ := r.ReadU32()
 
-	var rows []Unique0U32U64U64
+	if cap(updateU64Rows) < int(rowCount) {
+		updateU64Rows = make([]Unique0U32U64U64, 0, rowCount)
+	}
+	updateU64Rows = updateU64Rows[:0]
 	for row, err := range unique0U32U64U64Handle.Iter() {
-		if err != nil || uint32(len(rows)) >= rowCount {
+		if err != nil || uint32(len(updateU64Rows)) >= rowCount {
 			break
 		}
-		rows = append(rows, row)
+		updateU64Rows = append(updateU64Rows, row)
 	}
-	if uint32(len(rows)) != rowCount {
-		spacetimedb.LogPanic(fmt.Sprintf("update_bulk_unique_0_u32_u64_u64: expected %d rows, got %d", rowCount, len(rows)))
+	if uint32(len(updateU64Rows)) != rowCount {
+		spacetimedb.LogPanic("update_bulk_unique_0_u32_u64_u64: expected " + strconv.FormatUint(uint64(rowCount), 10) + " rows, got " + strconv.Itoa(len(updateU64Rows)))
 	}
-	for _, row := range rows {
+	for _, row := range updateU64Rows {
 		_, _ = unique0U32U64U64IdIdx.Update(Unique0U32U64U64{Id: row.Id, X: row.X + 1, Y: row.Y})
 	}
 }
@@ -244,17 +254,20 @@ func updateBulkUnique0U32U64StrReducer(_ spacetimedb.ReducerContext, args sys.By
 	r := reuseReader(data)
 	rowCount, _ := r.ReadU32()
 
-	var rows []Unique0U32U64Str
+	if cap(updateStrRows) < int(rowCount) {
+		updateStrRows = make([]Unique0U32U64Str, 0, rowCount)
+	}
+	updateStrRows = updateStrRows[:0]
 	for row, err := range unique0U32U64StrHandle.Iter() {
-		if err != nil || uint32(len(rows)) >= rowCount {
+		if err != nil || uint32(len(updateStrRows)) >= rowCount {
 			break
 		}
-		rows = append(rows, row)
+		updateStrRows = append(updateStrRows, row)
 	}
-	if uint32(len(rows)) != rowCount {
-		spacetimedb.LogPanic(fmt.Sprintf("update_bulk_unique_0_u32_u64_str: expected %d rows, got %d", rowCount, len(rows)))
+	if uint32(len(updateStrRows)) != rowCount {
+		spacetimedb.LogPanic("update_bulk_unique_0_u32_u64_str: expected " + strconv.FormatUint(uint64(rowCount), 10) + " rows, got " + strconv.Itoa(len(updateStrRows)))
 	}
-	for _, row := range rows {
+	for _, row := range updateStrRows {
 		_, _ = unique0U32U64StrIdIdx.Update(Unique0U32U64Str{Id: row.Id, Age: row.Age + 1, Name: row.Name})
 	}
 }
@@ -496,32 +509,32 @@ func clearTableUnimplementedReducer(_ spacetimedb.ReducerContext, _ sys.BytesSou
 
 func countUnique0U32U64StrReducer(_ spacetimedb.ReducerContext, _ sys.BytesSource) {
 	count, _ := unique0U32U64StrHandle.Count()
-	spacetimedb.LogInfo(fmt.Sprintf("COUNT: %d", count))
+	spacetimedb.LogInfo("COUNT: " + strconv.FormatUint(count, 10))
 }
 
 func countNoIndexU32U64StrReducer(_ spacetimedb.ReducerContext, _ sys.BytesSource) {
 	count, _ := noIndexU32U64StrHandle.Count()
-	spacetimedb.LogInfo(fmt.Sprintf("COUNT: %d", count))
+	spacetimedb.LogInfo("COUNT: " + strconv.FormatUint(count, 10))
 }
 
 func countBtreeEachColumnU32U64StrReducer(_ spacetimedb.ReducerContext, _ sys.BytesSource) {
 	count, _ := btreeEachColumnU32U64StrHandle.Count()
-	spacetimedb.LogInfo(fmt.Sprintf("COUNT: %d", count))
+	spacetimedb.LogInfo("COUNT: " + strconv.FormatUint(count, 10))
 }
 
 func countUnique0U32U64U64Reducer(_ spacetimedb.ReducerContext, _ sys.BytesSource) {
 	count, _ := unique0U32U64U64Handle.Count()
-	spacetimedb.LogInfo(fmt.Sprintf("COUNT: %d", count))
+	spacetimedb.LogInfo("COUNT: " + strconv.FormatUint(count, 10))
 }
 
 func countNoIndexU32U64U64Reducer(_ spacetimedb.ReducerContext, _ sys.BytesSource) {
 	count, _ := noIndexU32U64U64Handle.Count()
-	spacetimedb.LogInfo(fmt.Sprintf("COUNT: %d", count))
+	spacetimedb.LogInfo("COUNT: " + strconv.FormatUint(count, 10))
 }
 
 func countBtreeEachColumnU32U64U64Reducer(_ spacetimedb.ReducerContext, _ sys.BytesSource) {
 	count, _ := btreeEachColumnU32U64U64Handle.Count()
-	spacetimedb.LogInfo(fmt.Sprintf("COUNT: %d", count))
+	spacetimedb.LogInfo("COUNT: " + strconv.FormatUint(count, 10))
 }
 
 // ── Module-specific reducers ──────────────────────────────────────────────────

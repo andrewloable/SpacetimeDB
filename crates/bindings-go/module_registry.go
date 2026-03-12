@@ -6,16 +6,19 @@ import "github.com/clockworklabs/spacetimedb-go/types"
 
 // ── Module-level registries ───────────────────────────────────────────────────
 
+// Module-level registries accumulate definitions from generated init() code.
+// At module load time, __describe_module__ serializes these registries into
+// a BSATN-encoded RawModuleDefV10 for the SpacetimeDB host.
 var (
-	tableRegistry          []TableDef
-	reducerRegistry        []ReducerDef
-	lifecycleRegistry      []LifecycleDef
-	scheduleRegistry       []ScheduleDef
-	typeRegistry           []TypeDef
-	typespaceExtRegistry   []types.AlgebraicType
-	rlsRegistry            []RLSDef
-	explicitNameRegistry   []ExplicitNameEntry
-	caseConversionPolicy   *CaseConversionPolicy
+	tableRegistry        []TableDef              // all tables in this module
+	reducerRegistry      []ReducerDef            // all reducers (client-callable + internal)
+	lifecycleRegistry    []LifecycleDef          // lifecycle hooks (init, connect, disconnect)
+	scheduleRegistry     []ScheduleDef           // scheduled reducer registrations
+	typeRegistry         []TypeDef               // named type exports for client codegen
+	typespaceExtRegistry []types.AlgebraicType   // custom algebraic types in the typespace
+	rlsRegistry          []RLSDef                // row-level security policies
+	explicitNameRegistry []ExplicitNameEntry     // explicit source→canonical name mappings
+	caseConversionPolicy *CaseConversionPolicy   // optional module-wide case conversion override
 )
 
 // RegisterTableDef adds a table descriptor to the module registry.

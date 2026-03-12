@@ -86,28 +86,30 @@ func (e Errno) Error() string {
 	}
 }
 
+// SpacetimeDB ABI error codes. These match the Errno values defined in the
+// Rust host (spacetimedb_primitives::errno). Use errors.Is() for comparison.
 const (
-	ErrHostCallFailure         Errno = 1
-	ErrNotInTransaction        Errno = 2
-	ErrBsatnDecodeError        Errno = 3
-	ErrNoSuchTable             Errno = 4
-	ErrNoSuchIndex             Errno = 5
-	ErrNoSuchIter              Errno = 6
-	ErrNoSuchConsoleTimer      Errno = 7
-	ErrNoSuchBytes             Errno = 8
-	ErrNoSpace                 Errno = 9
-	ErrWrongIndexAlgo          Errno = 10
-	ErrBufferTooSmall          Errno = 11
-	ErrUniqueAlreadyExists     Errno = 12
-	ErrScheduleAtDelayTooLong  Errno = 13
-	ErrIndexNotUnique          Errno = 14
-	ErrNoSuchRow               Errno = 15
-	ErrAutoIncOverflow         Errno = 16
-	ErrWouldBlockTransaction   Errno = 17
-	ErrTransactionNotAnonymous Errno = 18
-	ErrTransactionIsReadOnly   Errno = 19
-	ErrTransactionIsMut        Errno = 20
-	ErrHttpError               Errno = 21
+	ErrHostCallFailure         Errno = 1  // ABI called by host returned an error
+	ErrNotInTransaction        Errno = 2  // operation requires an active transaction
+	ErrBsatnDecodeError        Errno = 3  // BSATN payload could not be decoded
+	ErrNoSuchTable             Errno = 4  // table name not found in module schema
+	ErrNoSuchIndex             Errno = 5  // index name not found in module schema
+	ErrNoSuchIter              Errno = 6  // RowIter handle is invalid or already closed
+	ErrNoSuchConsoleTimer      Errno = 7  // timer handle does not exist
+	ErrNoSuchBytes             Errno = 8  // BytesSource/BytesSink handle is invalid
+	ErrNoSpace                 Errno = 9  // BytesSink has no more capacity
+	ErrWrongIndexAlgo          Errno = 10 // index does not support the requested scan type
+	ErrBufferTooSmall          Errno = 11 // caller buffer too small; required size returned
+	ErrUniqueAlreadyExists     Errno = 12 // unique constraint violation on insert/update
+	ErrScheduleAtDelayTooLong  Errno = 13 // schedule delay exceeds maximum allowed
+	ErrIndexNotUnique          Errno = 14 // index is not a unique index
+	ErrNoSuchRow               Errno = 15 // row not found for update/delete
+	ErrAutoIncOverflow         Errno = 16 // auto-increment sequence overflow
+	ErrWouldBlockTransaction   Errno = 17 // async/blocking op inside a transaction
+	ErrTransactionNotAnonymous Errno = 18 // operation requires an anonymous transaction
+	ErrTransactionIsReadOnly   Errno = 19 // mutation attempted in a read-only transaction
+	ErrTransactionIsMut        Errno = 20 // read-only op attempted in a mutable transaction
+	ErrHttpError               Errno = 21 // HTTP request failed
 )
 
 // checkErr converts a u16 ABI return value to an error (nil if 0).

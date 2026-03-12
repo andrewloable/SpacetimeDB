@@ -90,11 +90,15 @@ pub(crate) fn build_go(project_path: &Path, _build_debug: bool) -> anyhow::Resul
     // This produces a WASM module that:
     //   - exports _initialize instead of _start (no proc_exit call)
     //   - has zero non-SpacetimeDB imports
+    // We override GC to conservative because wasm-unknown defaults to gc.leaking
+    // which never frees memory, causing OOM under sustained reducer workloads.
     duct::cmd!(
         "tinygo",
         "build",
         "-target",
         "wasm-unknown",
+        "-gc",
+        "conservative",
         "-buildmode",
         "c-shared",
         "-o",

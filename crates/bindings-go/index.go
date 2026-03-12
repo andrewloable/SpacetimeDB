@@ -38,6 +38,7 @@ func NewUniqueIndex[Row any, Col any](
 	}
 }
 
+// iid returns the cached IndexId, resolving it from the host on first call.
 func (idx *UniqueIndex[Row, Col]) iid() (sys.IndexId, error) {
 	if !idx.ready {
 		id, err := sys.IndexIdFromName(idx.indexName)
@@ -50,6 +51,7 @@ func (idx *UniqueIndex[Row, Col]) iid() (sys.IndexId, error) {
 	return idx.indexId, nil
 }
 
+// tid returns the cached TableId, resolving it from the host on first call.
 func (idx *UniqueIndex[Row, Col]) tid() (sys.TableId, error) {
 	if !idx.tableReady {
 		id, err := sys.TableIdFromName(idx.tableName)
@@ -69,9 +71,9 @@ func (idx *UniqueIndex[Row, Col]) Find(col Col) (*Row, error) {
 	if err != nil {
 		return nil, err
 	}
-	w := bsatn.NewWriter()
-	idx.encodeCol(w, col)
-	rowIter, err := sys.IndexScanPointBsatn(iid, w.Bytes())
+	reuseWriter.Reset()
+	idx.encodeCol(reuseWriter, col)
+	rowIter, err := sys.IndexScanPointBsatn(iid, reuseWriter.Bytes())
 	if err != nil {
 		return nil, err
 	}
@@ -99,11 +101,19 @@ func (idx *UniqueIndex[Row, Col]) Delete(col Col) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	w := bsatn.NewWriter()
-	idx.encodeCol(w, col)
-	deleted, err := sys.DeleteByIndexScanPointBsatn(iid, w.Bytes())
+	reuseWriter.Reset()
+	idx.encodeCol(reuseWriter, col)
+	deleted, err := sys.DeleteByIndexScanPointBsatn(iid, reuseWriter.Bytes())
 	return deleted > 0, err
 }
+
+// reuseWriter is a package-level writer reused by hot-path operations
+// to avoid per-call heap allocations under TinyGo WASM.
+var reuseWriter = bsatn.NewWriter()
+
+// reuseReader is a package-level reader reused by Update to decode generated
+// column values without per-call heap allocations under TinyGo WASM.
+var reuseReader = bsatn.NewReader(nil)
 
 // Update replaces the row identified by the unique column value in row.
 func (idx *UniqueIndex[Row, Col]) Update(row Row) (Row, error) {
@@ -115,9 +125,9 @@ func (idx *UniqueIndex[Row, Col]) Update(row Row) (Row, error) {
 	if err != nil {
 		return row, err
 	}
-	w := bsatn.NewWriter()
-	idx.encodeRow(w, row)
-	out, err := sys.UpdateBsatn(tid, iid, w.Bytes())
+	reuseWriter.Reset()
+	idx.encodeRow(reuseWriter, row)
+	out, err := sys.UpdateBsatnReuse(tid, iid, reuseWriter.Bytes())
 	if err != nil {
 		return row, err
 	}
@@ -126,8 +136,8 @@ func (idx *UniqueIndex[Row, Col]) Update(row Row) (Row, error) {
 	if len(out) == 0 {
 		return row, nil
 	}
-	r := bsatn.NewReader(out)
-	return idx.decodeRow(r)
+	reuseReader.Reset(out)
+	return idx.decodeRow(reuseReader)
 }
 
 // BoundKind indicates whether a range bound is inclusive, exclusive, or absent.
@@ -155,15 +165,19 @@ func NewBoundExcluded[Col any](v Col) Bound[Col] { return Bound[Col]{Kind: Bound
 // NewBoundUnbounded returns a Bound with no restriction on that end of the range.
 func NewBoundUnbounded[Col any]() Bound[Col] { return Bound[Col]{Kind: BoundUnbounded} }
 
+// boundWriter is a package-level writer reused by encodeBound to avoid
+// per-call heap allocations under TinyGo WASM.
+var boundWriter = bsatn.NewWriter()
+
 // encodeBound encodes a Bound<Col> as BSATN: tag byte + encoded value (if bounded).
 func encodeBound[Col any](b Bound[Col], encodeCol func(*bsatn.Writer, Col)) []byte {
 	if b.Kind == BoundUnbounded {
 		return nil // nil = Unbounded in the ABI
 	}
-	w := bsatn.NewWriter()
-	w.WriteVariantTag(uint8(b.Kind))
-	encodeCol(w, b.Value)
-	return w.Bytes()
+	boundWriter.Reset()
+	boundWriter.WriteVariantTag(uint8(b.Kind))
+	encodeCol(boundWriter, b.Value)
+	return boundWriter.Bytes()
 }
 
 // EncodeBound is the exported version of encodeBound. Generated multi-column
@@ -195,6 +209,7 @@ func NewBTreeIndex[Row any, Col any](
 	}
 }
 
+// iid returns the cached IndexId, resolving it from the host on first call.
 func (idx *BTreeIndex[Row, Col]) iid() (sys.IndexId, error) {
 	if !idx.ready {
 		id, err := sys.IndexIdFromName(idx.indexName)
@@ -216,9 +231,9 @@ func (idx *BTreeIndex[Row, Col]) Filter(col Col) iter.Seq2[Row, error] {
 			yield(zero, err)
 			return
 		}
-		w := bsatn.NewWriter()
-		idx.encodeCol(w, col)
-		prefix := w.Bytes()
+		reuseWriter.Reset()
+		idx.encodeCol(reuseWriter, col)
+		prefix := reuseWriter.Bytes()
 		rowIter, err := sys.IndexScanRangeBsatn(iid, prefix, 1, nil, nil)
 		if err != nil {
 			var zero Row

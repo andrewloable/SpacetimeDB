@@ -56,6 +56,10 @@ func (h *TableHandle[Row]) Count() (uint64, error) {
 	return sys.TableRowCount(tid)
 }
 
+// tableReuseWriter is a package-level writer reused by table Insert operations
+// to avoid per-call heap allocations under TinyGo WASM.
+var tableReuseWriter = bsatn.NewWriter()
+
 // Insert encodes row as BSATN and inserts it into the table.
 // The returned row reflects any auto-increment or generated column values.
 func (h *TableHandle[Row]) Insert(row Row) (Row, error) {
@@ -63,9 +67,9 @@ func (h *TableHandle[Row]) Insert(row Row) (Row, error) {
 	if err != nil {
 		return row, err
 	}
-	w := bsatn.NewWriter()
-	h.encode(w, row)
-	out, err := sys.InsertBsatn(tid, w.Bytes())
+	tableReuseWriter.Reset()
+	h.encode(tableReuseWriter, row)
+	out, err := sys.InsertBsatnReuse(tid, tableReuseWriter.Bytes())
 	if err != nil {
 		return row, err
 	}
@@ -74,8 +78,8 @@ func (h *TableHandle[Row]) Insert(row Row) (Row, error) {
 	if len(out) == 0 {
 		return row, nil
 	}
-	r := bsatn.NewReader(out)
-	return h.decode(r)
+	tableReuseReader.Reset(out)
+	return h.decode(tableReuseReader)
 }
 
 // Delete removes the row equal to row from the table.
@@ -85,10 +89,10 @@ func (h *TableHandle[Row]) Delete(row Row) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	w := bsatn.NewWriter()
-	h.encode(w, row)
+	tableReuseWriter.Reset()
+	h.encode(tableReuseWriter, row)
 	// Wrap in a 1-element Vec<ProductValue> as required by the ABI.
-	payload := encodeRowVec(w.Bytes())
+	payload := encodeRowVec(tableReuseWriter.Bytes())
 	deleted, err := sys.DeleteAllByEqBsatn(tid, payload)
 	return deleted > 0, err
 }
@@ -115,6 +119,10 @@ func (h *TableHandle[Row]) Iter() iter.Seq2[Row, error] {
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
+// tableReuseReader is a package-level reader reused by iterRows to avoid
+// per-call heap allocations under TinyGo WASM.
+var tableReuseReader = bsatn.NewReader(nil)
+
 // iterRows reads all rows from a RowIter, decoding each with decode and yielding
 // via yield. Stops when yield returns false or the iterator is exhausted.
 func iterRows[Row any](rowIter sys.RowIter, decode func(*bsatn.Reader) (Row, error), yield func(Row, error) bool) {
@@ -124,20 +132,24 @@ func iterRows[Row any](rowIter sys.RowIter, decode func(*bsatn.Reader) (Row, err
 		yield(zero, err)
 		return
 	}
-	r := bsatn.NewReader(data)
-	for r.Remaining() > 0 {
-		row, err := decode(r)
+	tableReuseReader.Reset(data)
+	for tableReuseReader.Remaining() > 0 {
+		row, err := decode(tableReuseReader)
 		if !yield(row, err) || err != nil {
 			return
 		}
 	}
 }
 
+// deleteReuseWriter is a package-level writer reused by encodeRowVec
+// to avoid per-call heap allocations under TinyGo WASM.
+var deleteReuseWriter = bsatn.NewWriter()
+
 // encodeRowVec wraps a single BSATN-encoded row in a Vec<ProductValue> envelope
 // (4-byte LE count = 1, then the row bytes), as required by DeleteAllByEqBsatn.
 func encodeRowVec(rowBytes []byte) []byte {
-	w := bsatn.NewWriter()
-	w.WriteArrayLen(1)
-	w.WriteRaw(rowBytes)
-	return w.Bytes()
+	deleteReuseWriter.Reset()
+	deleteReuseWriter.WriteArrayLen(1)
+	deleteReuseWriter.WriteRaw(rowBytes)
+	return deleteReuseWriter.Bytes()
 }

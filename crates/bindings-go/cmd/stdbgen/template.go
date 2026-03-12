@@ -107,6 +107,10 @@ func Filter{{$tname}}By{{$colCamel}}Range(lo, hi spacetimedb.Bound[{{idxKeyGoTyp
 
 {{end}}
 
+// prefixFilterWriter is a package-level writer reused by composite BTree prefix
+// filter functions to avoid per-call heap allocations under TinyGo WASM.
+var prefixFilterWriter = bsatn.NewWriter()
+
 {{range .PrefixFilters}}
 // {{.FuncName}} queries {{.TableName}} using a composite BTree index.
 // It matches {{len .PrefixCols}} exact prefix column(s) and ranges over the trailing column.
@@ -115,7 +119,8 @@ func {{.FuncName}}(
 	{{lower .Name}} {{.GoType}},
 {{- end}}
 	lo, hi spacetimedb.Bound[{{.TrailingType}}]) iter.Seq2[{{.TableName}}, error] {
-	w := bsatn.NewWriter()
+	prefixFilterWriter.Reset()
+	w := prefixFilterWriter
 {{- range .PrefixCols}}
 	{{.EncodeStmt}}
 {{- end}}
@@ -268,16 +273,21 @@ func init() {
 
 }
 
+// argsReader is a package-level reusable Reader for decoding reducer arguments.
+// Avoids per-call heap allocation of *bsatn.Reader (critical for TinyGo WASM GC).
+var argsReader = bsatn.NewReader(nil)
+
 {{range .Reducers}}{{$rname := .Name}}
 // handle{{$rname}} is the generated reducer handler skeleton for {{$rname}}.
 // Replace this with your own implementation.
 func handle{{$rname}}(ctx spacetimedb.ReducerContext, args sys.BytesSource) {
 {{- if .Params}}
-	data, err := sys.ReadBytesSource(args)
+	data, err := sys.ReadBytesSourceReuse(args)
 	if err != nil {
 		panic("{{$rname}}: failed to read args: " + err.Error())
 	}
-	r := bsatn.NewReader(data)
+	argsReader.Reset(data)
+	r := argsReader
 {{- range .Params}}
 	{{lower .Name}}, err := {{readMethod .Type}}
 	if err != nil {
@@ -317,11 +327,12 @@ func handle{{.Lifecycle.OnDisconnect}}(ctx spacetimedb.ReducerContext, _ sys.Byt
 // handle{{$pname}}Procedure is the generated procedure handler skeleton for {{$pname}}.
 func handle{{$pname}}Procedure(ctx spacetimedb.ProcedureContext, args sys.BytesSource, result sys.BytesSink) {
 {{- if .Params}}
-	data, err := sys.ReadBytesSource(args)
+	data, err := sys.ReadBytesSourceReuse(args)
 	if err != nil {
 		panic("{{$pname}}: failed to read args: " + err.Error())
 	}
-	r := bsatn.NewReader(data)
+	argsReader.Reset(data)
+	r := argsReader
 {{- range .Params}}
 	{{lower .Name}}, err := {{readMethod .Type}}
 	if err != nil {

@@ -151,8 +151,9 @@ var (
 // next call to CollectIterReuse.
 func CollectIterReuse(iter RowIter) ([]byte, error) {
 	if collectIterBuf == nil {
-		collectIterBuf = make([]byte, 4096)
+		collectIterBuf = make([]byte, 64*1024)
 	}
+	// Reset length but keep the backing array to avoid new allocations.
 	collectIterResult = collectIterResult[:0]
 	for {
 		n, exhausted, err := RowIterAdvance(iter, collectIterBuf)
@@ -164,7 +165,21 @@ func CollectIterReuse(iter RowIter) ([]byte, error) {
 			_ = RowIterClose(iter)
 			return nil, err
 		}
-		collectIterResult = append(collectIterResult, collectIterBuf[:n]...)
+		needed := len(collectIterResult) + int(n)
+		// Grow into a single pre-sized buffer when capacity is insufficient,
+		// rather than letting append allocate (and leak) intermediate arrays
+		// that TinyGo's conservative WASM GC cannot reclaim fast enough.
+		if needed > cap(collectIterResult) {
+			newCap := cap(collectIterResult) * 2
+			if newCap < needed {
+				newCap = needed
+			}
+			grown := make([]byte, len(collectIterResult), newCap)
+			copy(grown, collectIterResult)
+			collectIterResult = grown
+		}
+		collectIterResult = collectIterResult[:needed]
+		copy(collectIterResult[needed-int(n):], collectIterBuf[:n])
 		if exhausted {
 			return collectIterResult, nil
 		}
@@ -216,13 +231,38 @@ func UpdateBsatn(tableId TableId, indexId IndexId, row []byte) ([]byte, error) {
 	if len(row) == 0 {
 		return row, nil
 	}
-	buf := append([]byte(nil), row...)
+	buf := append([]byte(nil), row...) // copy so we can write back
 	bufLen := uint32(len(buf))
 	ret := rawDatastoreUpdateBsatn(tableId, indexId, unsafe.Pointer(&buf[0]), unsafe.Pointer(&bufLen))
 	if err := checkErr(ret); err != nil {
 		return nil, err
 	}
 	return buf[:bufLen], nil
+}
+
+// updateReuseBuf is a package-level buffer reused by UpdateBsatnReuse to avoid
+// per-call allocations in tight loops (important for TinyGo WASM where GC can't
+// keep up with high allocation rates).
+var updateReuseBuf []byte
+
+// UpdateBsatnReuse updates a row identified by the unique index, reusing an
+// internal buffer to avoid allocating on every call. The returned slice is only
+// valid until the next call to UpdateBsatnReuse.
+func UpdateBsatnReuse(tableId TableId, indexId IndexId, row []byte) ([]byte, error) {
+	if len(row) == 0 {
+		return row, nil
+	}
+	if cap(updateReuseBuf) < len(row) {
+		updateReuseBuf = make([]byte, len(row))
+	}
+	updateReuseBuf = updateReuseBuf[:len(row)]
+	copy(updateReuseBuf, row)
+	bufLen := uint32(len(updateReuseBuf))
+	ret := rawDatastoreUpdateBsatn(tableId, indexId, unsafe.Pointer(&updateReuseBuf[0]), unsafe.Pointer(&bufLen))
+	if err := checkErr(ret); err != nil {
+		return nil, err
+	}
+	return updateReuseBuf[:bufLen], nil
 }
 
 // ReadBytesSource reads all bytes from a BytesSource into a []byte.
@@ -293,6 +333,9 @@ func ReadBytesSourceReuse(source BytesSource) ([]byte, error) {
 	}
 }
 
+// sinkBuf is a reusable buffer for WriteBytesToSink to avoid per-chunk allocations.
+var sinkBuf [256]byte
+
 // WriteBytesToSink writes all bytes to a BytesSink.
 func WriteBytesToSink(sink BytesSink, data []byte) error {
 	if len(data) == 0 {
@@ -305,10 +348,9 @@ func WriteBytesToSink(sink BytesSink, data []byte) error {
 		if chunk > 256 {
 			chunk = 256
 		}
-		buf := make([]byte, chunk)
-		copy(buf, data[off:off+chunk])
+		copy(sinkBuf[:chunk], data[off:off+chunk])
 		n := chunk
-		ret := rawBytesSinkWrite(sink, unsafe.Pointer(&buf[0]), unsafe.Pointer(&n))
+		ret := rawBytesSinkWrite(sink, unsafe.Pointer(&sinkBuf[0]), unsafe.Pointer(&n))
 		if err := checkErr(ret); err != nil {
 			return err
 		}
@@ -318,38 +360,37 @@ func WriteBytesToSink(sink BytesSink, data []byte) error {
 }
 
 // Log level constants matching SpacetimeDB's host logging levels.
+// These correspond to the Rust log crate levels used by the host.
+// LogPanic (101) is a special level that triggers a module panic after logging.
 const (
-	LogError = uint32(0)
-	LogWarn  = uint32(1)
-	LogInfo  = uint32(2)
-	LogDebug = uint32(3)
-	LogTrace = uint32(4)
-	LogPanic = uint32(101)
+	LogError = uint32(0)   // error-level: unrecoverable failures
+	LogWarn  = uint32(1)   // warn-level: recoverable issues
+	LogInfo  = uint32(2)   // info-level: general operational messages
+	LogDebug = uint32(3)   // debug-level: diagnostic information
+	LogTrace = uint32(4)   // trace-level: fine-grained execution details
+	LogPanic = uint32(101) // panic-level: logs message then triggers module panic
 )
 
 // ConsoleLog logs a message at the given level.
 // target and filename may be empty strings (passed as NULL to host).
 func ConsoleLog(level uint32, target, filename string, lineNumber uint32, message string) {
-	msgBytes := []byte(message)
 	var targetPtr, filenamePtr unsafe.Pointer
 	var targetLen, filenameLen uint32
 	if len(target) > 0 {
-		tb := []byte(target)
-		targetPtr = unsafe.Pointer(&tb[0])
-		targetLen = uint32(len(tb))
+		targetPtr = unsafe.Pointer(unsafe.StringData(target))
+		targetLen = uint32(len(target))
 	}
 	if len(filename) > 0 {
-		fb := []byte(filename)
-		filenamePtr = unsafe.Pointer(&fb[0])
-		filenameLen = uint32(len(fb))
+		filenamePtr = unsafe.Pointer(unsafe.StringData(filename))
+		filenameLen = uint32(len(filename))
 	}
-	rawConsoleLog(level, targetPtr, targetLen, filenamePtr, filenameLen, lineNumber, unsafe.Pointer(&msgBytes[0]), uint32(len(msgBytes)))
+	msgPtr := unsafe.Pointer(unsafe.StringData(message))
+	rawConsoleLog(level, targetPtr, targetLen, filenamePtr, filenameLen, lineNumber, msgPtr, uint32(len(message)))
 }
 
 // ConsoleTimerStart begins a timing span and returns a timer handle.
 func ConsoleTimerStart(name string) uint32 {
-	b := []byte(name)
-	return rawConsoleTimerStart(unsafe.Pointer(&b[0]), uint32(len(b)))
+	return rawConsoleTimerStart(unsafe.Pointer(unsafe.StringData(name)), uint32(len(name)))
 }
 
 // ConsoleTimerEnd ends a timing span and logs its duration.
@@ -386,9 +427,8 @@ func GetJwt(connectionId [16]byte) (BytesSource, error) {
 // transaction. The reducer runs immediately after the current transaction commits.
 // name is the reducer name; args is the BSATN-encoded argument payload.
 func VolatileNonatomicScheduleImmediate(name string, args []byte) {
-	nb := []byte(name)
 	argsPtr, argsLen := slicePtr(args)
-	rawVolatileNonatomicScheduleImmediate(unsafe.Pointer(&nb[0]), uint32(len(nb)), argsPtr, argsLen)
+	rawVolatileNonatomicScheduleImmediate(unsafe.Pointer(unsafe.StringData(name)), uint32(len(name)), argsPtr, argsLen)
 }
 
 // ProcedureStartMutTx begins a mutable transaction within a procedure.

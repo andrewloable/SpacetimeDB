@@ -1,8 +1,8 @@
 package main
 
 import (
-	"fmt"
 	"math"
+	"strconv"
 
 	spacetimedb "github.com/clockworklabs/spacetimedb-go-server"
 	"github.com/clockworklabs/spacetimedb-go-server/sys"
@@ -37,7 +37,7 @@ func insertBulkEntity(count uint32) {
 		encodeEntity(bulkWriter, e)
 		_, _ = sys.InsertBsatnReuse(tid, bulkWriter.Bytes())
 	}
-	spacetimedb.LogInfo(fmt.Sprintf("INSERT ENTITY: %d", count))
+	spacetimedb.LogInfo("INSERT ENTITY: " + strconv.FormatUint(uint64(count), 10))
 }
 
 func insertBulkEntityReducer(_ spacetimedb.ReducerContext, args sys.BytesSource) {
@@ -61,7 +61,7 @@ func insertBulkCircle(ctx spacetimedb.ReducerContext, count uint32) {
 		encodeCircle(bulkWriter, c)
 		_, _ = sys.InsertBsatnReuse(tid, bulkWriter.Bytes())
 	}
-	spacetimedb.LogInfo(fmt.Sprintf("INSERT CIRCLE: %d", count))
+	spacetimedb.LogInfo("INSERT CIRCLE: " + strconv.FormatUint(uint64(count), 10))
 }
 
 func insertBulkCircleReducer(ctx spacetimedb.ReducerContext, args sys.BytesSource) {
@@ -78,7 +78,7 @@ func insertBulkFood(count uint32) {
 		encodeFood(bulkWriter, Food{EntityId: id})
 		_, _ = sys.InsertBsatnReuse(tid, bulkWriter.Bytes())
 	}
-	spacetimedb.LogInfo(fmt.Sprintf("INSERT FOOD: %d", count))
+	spacetimedb.LogInfo("INSERT FOOD: " + strconv.FormatUint(uint64(count), 10))
 }
 
 func insertBulkFoodReducer(_ spacetimedb.ReducerContext, args sys.BytesSource) {
@@ -106,7 +106,7 @@ func crossJoinAll(expected uint32) {
 			}
 		}
 	}
-	spacetimedb.LogInfo(fmt.Sprintf("CROSS JOIN ALL: %d, processed: %d", expected, count))
+	spacetimedb.LogInfo("CROSS JOIN ALL: " + strconv.FormatUint(uint64(expected), 10) + ", processed: " + strconv.Itoa(count))
 }
 
 func crossJoinAllReducer(_ spacetimedb.ReducerContext, args sys.BytesSource) {
@@ -132,13 +132,13 @@ func crossJoinCircleFood(expected uint32) {
 			}
 			foodEntity, err4 := entityIdIdx.Find(food.EntityId)
 			if err4 != nil || foodEntity == nil {
-				spacetimedb.LogPanic(fmt.Sprintf("Entity not found: %d", food.EntityId))
+				spacetimedb.LogPanic("Entity not found: " + strconv.FormatUint(uint64(food.EntityId), 10))
 			}
 			count++
 			_ = isOverlapping(*circleEntity, *foodEntity)
 		}
 	}
-	spacetimedb.LogInfo(fmt.Sprintf("CROSS JOIN CIRCLE FOOD: %d, processed: %d", expected, count))
+	spacetimedb.LogInfo("CROSS JOIN CIRCLE FOOD: " + strconv.FormatUint(uint64(expected), 10) + ", processed: " + strconv.Itoa(count))
 }
 
 func crossJoinCircleFoodReducer(_ spacetimedb.ReducerContext, args sys.BytesSource) {

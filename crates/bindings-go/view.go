@@ -11,14 +11,15 @@ import (
 	"github.com/clockworklabs/spacetimedb-go-server/sys"
 )
 
+// viewResultHeaderRowData is the pre-encoded BSATN for ViewResultHeader::RowData
+// (variant tag 0, unit payload). Avoids per-call allocation.
+var viewResultHeaderRowData = []byte{0}
+
 // writeViewResultHeaderRowData writes the ViewResultHeader::RowData variant
 // to the BytesSink. This is a tagged enum with tag 0 and Unit payload.
 // Must be written before the actual row data in __call_view__ / __call_view_anon__.
 func writeViewResultHeaderRowData(sink sys.BytesSink) {
-	w := bsatn.NewWriter()
-	w.WriteVariantTag(0) // RowData variant
-	// Unit is an empty product — no additional bytes needed
-	_ = sys.WriteBytesToSink(sink, w.Bytes())
+	_ = sys.WriteBytesToSink(sink, viewResultHeaderRowData)
 }
 
 // ── View types ────────────────────────────────────────────────────────────────
@@ -49,6 +50,10 @@ type ViewDef struct {
 	ReturnType interface{} // types.AlgebraicType
 }
 
+// viewRegistry holds view definitions populated by init() via RegisterViewDef.
+// viewHandlers and viewAnonHandlers hold the corresponding handler functions,
+// indexed in the same order as viewRegistry. Authenticated and anonymous views
+// are dispatched through separate handler slices.
 var (
 	viewRegistry     []ViewDef
 	viewHandlers     []ViewHandler

@@ -8,6 +8,7 @@ import (
 
 // ── Template helpers ──────────────────────────────────────────────────────────
 
+// titleCase capitalizes the first character of s.
 func titleCase(s string) string {
 	if s == "" {
 		return ""
@@ -34,6 +35,7 @@ func camelTitle(s string) string {
 	return b.String()
 }
 
+// lowerCase lowercases the first character of s (used for Go unexported identifiers).
 func lowerCase(s string) string {
 	if s == "" {
 		return ""
@@ -41,6 +43,7 @@ func lowerCase(s string) string {
 	return strings.ToLower(s[:1]) + s[1:]
 }
 
+// tableAccess converts a YAML access string ("public"/"private") to the Go constant expression.
 func tableAccess(access string) string {
 	if strings.ToLower(access) == "private" {
 		return "spacetimedb.TableAccessPrivate"
@@ -48,6 +51,7 @@ func tableAccess(access string) string {
 	return "spacetimedb.TableAccessPublic"
 }
 
+// reducerVisibility converts a YAML visibility string to the Go constant expression.
 func reducerVisibility(vis string) string {
 	if strings.ToLower(vis) == "private" {
 		return "spacetimedb.ReducerVisibilityPrivate"

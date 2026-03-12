@@ -109,19 +109,27 @@ func (p *ProcedureContext) HttpRequestRaw(request, body []byte) ([]byte, []byte,
 	return respBytes, bodyBytes, nil
 }
 
+// httpReuseWriter is a package-level writer reused by Http() to avoid
+// per-call heap allocations under TinyGo WASM.
+var httpReuseWriter = bsatn.NewWriter()
+
+// httpReuseReader is a package-level reader reused by Http() to avoid
+// per-call heap allocations under TinyGo WASM.
+var httpReuseReader = bsatn.NewReader(nil)
+
 // Http makes a typed HTTP request from within a procedure.
 // Unlike HttpRequestRaw which takes raw BSATN bytes, this method accepts an
 // HttpRequest struct and returns a typed HttpResponse.
 // The body parameter is the optional request body bytes (nil for no body).
 func (p *ProcedureContext) Http(req HttpRequest, body []byte) (HttpResponse, []byte, error) {
-	w := bsatn.NewWriter()
-	WriteHttpRequest(w, req)
-	rawResp, respBody, err := p.HttpRequestRaw(w.Bytes(), body)
+	httpReuseWriter.Reset()
+	WriteHttpRequest(httpReuseWriter, req)
+	rawResp, respBody, err := p.HttpRequestRaw(httpReuseWriter.Bytes(), body)
 	if err != nil {
 		return HttpResponse{}, nil, err
 	}
-	r := bsatn.NewReader(rawResp)
-	resp, err := ReadHttpResponse(r)
+	httpReuseReader.Reset(rawResp)
+	resp, err := ReadHttpResponse(httpReuseReader)
 	if err != nil {
 		return HttpResponse{}, nil, err
 	}
@@ -201,6 +209,8 @@ type ProcedureDef struct {
 	Visibility ReducerVisibility
 }
 
+// procedureRegistry holds procedure definitions populated by init() via RegisterProcedureDef.
+// procedureHandlers holds the corresponding handler functions, indexed in the same order.
 var (
 	procedureRegistry []ProcedureDef
 	procedureHandlers []ProcedureHandler

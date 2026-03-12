@@ -1,7 +1,7 @@
 package main
 
 import (
-	"fmt"
+	"strconv"
 
 	spacetimedb "github.com/clockworklabs/spacetimedb-go-server"
 	"github.com/clockworklabs/spacetimedb-go-server/sys"
@@ -96,8 +96,12 @@ func agentLoop(agent GameEnemyAiAgentState, currentTimeMs uint64) {
 	moveAgent(&agent, currentTimeMs)
 }
 
+// targetablesNearQuadBuf is a package-level buffer reused by getTargetablesNearQuad
+// to avoid per-call heap allocations under TinyGo WASM.
+var targetablesNearQuadBuf []GameTargetableState
+
 func getTargetablesNearQuad(entityId, numPlayers uint64) []GameTargetableState {
-	result := make([]GameTargetableState, 0, 4)
+	targetablesNearQuadBuf = targetablesNearQuadBuf[:0]
 	for id := entityId; id < numPlayers; id++ {
 		for t, err := range gameLiveTargetableStateQuadIdx.Filter(int64(id)) {
 			if err != nil {
@@ -107,10 +111,10 @@ func getTargetablesNearQuad(entityId, numPlayers uint64) []GameTargetableState {
 			if err2 != nil || targetable == nil {
 				spacetimedb.LogPanic("Identity not found")
 			}
-			result = append(result, *targetable)
+			targetablesNearQuadBuf = append(targetablesNearQuadBuf, *targetable)
 		}
 	}
-	return result
+	return targetablesNearQuadBuf
 }
 
 func insertBulkPosition(count uint32) {
@@ -132,7 +136,7 @@ func insertBulkPosition(count uint32) {
 		encodePosition(bulkWriter, p)
 		_, _ = sys.InsertBsatnReuse(tid, bulkWriter.Bytes())
 	}
-	spacetimedb.LogInfo(fmt.Sprintf("INSERT POSITION: %d", count))
+	spacetimedb.LogInfo("INSERT POSITION: " + strconv.FormatUint(uint64(count), 10))
 }
 
 func insertBulkPositionReducer(_ spacetimedb.ReducerContext, args sys.BytesSource) {
@@ -155,7 +159,7 @@ func insertBulkVelocity(count uint32) {
 		encodeVelocity(bulkWriter, v)
 		_, _ = sys.InsertBsatnReuse(tid, bulkWriter.Bytes())
 	}
-	spacetimedb.LogInfo(fmt.Sprintf("INSERT VELOCITY: %d", count))
+	spacetimedb.LogInfo("INSERT VELOCITY: " + strconv.FormatUint(uint64(count), 10))
 }
 
 func insertBulkVelocityReducer(_ spacetimedb.ReducerContext, args sys.BytesSource) {
@@ -177,7 +181,7 @@ func updatePositionAll(expected uint32) {
 		_, _ = positionEntityIdIdx.Update(pos)
 		count++
 	}
-	spacetimedb.LogInfo(fmt.Sprintf("UPDATE POSITION ALL: %d, processed: %d", expected, count))
+	spacetimedb.LogInfo("UPDATE POSITION ALL: " + strconv.FormatUint(uint64(expected), 10) + ", processed: " + strconv.Itoa(count))
 }
 
 func updatePositionAllReducer(_ spacetimedb.ReducerContext, args sys.BytesSource) {
@@ -203,7 +207,7 @@ func updatePositionWithVelocity(expected uint32) {
 		_, _ = positionEntityIdIdx.Update(*pos)
 		count++
 	}
-	spacetimedb.LogInfo(fmt.Sprintf("UPDATE POSITION BY VELOCITY: %d, processed: %d", expected, count))
+	spacetimedb.LogInfo("UPDATE POSITION BY VELOCITY: " + strconv.FormatUint(uint64(expected), 10) + ", processed: " + strconv.Itoa(count))
 }
 
 func updatePositionWithVelocityReducer(_ spacetimedb.ReducerContext, args sys.BytesSource) {
@@ -285,7 +289,7 @@ func insertWorld(players uint64) {
 		})
 		_, _ = sys.InsertBsatnReuse(tidHerd, bulkWriter.Bytes())
 	}
-	spacetimedb.LogInfo(fmt.Sprintf("INSERT WORLD PLAYERS: %d", players))
+	spacetimedb.LogInfo("INSERT WORLD PLAYERS: " + strconv.FormatUint(players, 10))
 }
 
 func insertWorldReducer(_ spacetimedb.ReducerContext, args sys.BytesSource) {
@@ -315,7 +319,7 @@ func gameLoopEnemyIa(players uint64) {
 		agentLoop(agent, currentTimeMs)
 		count++
 	}
-	spacetimedb.LogInfo(fmt.Sprintf("ENEMY IA LOOP PLAYERS: %d, processed: %d", players, count))
+	spacetimedb.LogInfo("ENEMY IA LOOP PLAYERS: " + strconv.FormatUint(players, 10) + ", processed: " + strconv.Itoa(count))
 }
 
 func gameLoopEnemyIaReducer(_ spacetimedb.ReducerContext, args sys.BytesSource) {
