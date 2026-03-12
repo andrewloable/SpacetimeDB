@@ -116,7 +116,6 @@ pub(crate) fn build_go(project_path: &Path, _build_debug: bool) -> anyhow::Resul
     Ok(output_path)
 }
 
-<<<<<<< HEAD
 /// Adds a `__preinit__10_go_init` export to the WASM binary that aliases the
 /// `_initialize` function. Returns None if `_initialize` is not found.
 fn add_preinit_export(wasm: &[u8], preinit_name: &str) -> Option<Vec<u8>> {
@@ -246,7 +245,6 @@ fn leb_encode(out: &mut Vec<u8>, mut n: u64) {
     }
 }
 
-=======
 fn extract_embedded_go_sdk(cache_dir: &Path) -> anyhow::Result<()> {
     let server_sdk_dir = cache_dir.join("bindings-go");
     let client_sdk_dir = cache_dir.join("sdks-go");
@@ -278,4 +276,3 @@ fn write_if_changed(path: &Path, contents: &[u8]) -> std::io::Result<()> {
         _ => std::fs::write(path, contents),
     }
 }
->>>>>>> 5a44ed39 (golang updates)
