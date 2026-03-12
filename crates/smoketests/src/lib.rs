@@ -943,7 +943,11 @@ impl Smoketest {
             .args([
                 "build",
                 "-target",
-                "wasm",
+                "wasm-unknown",
+                "-gc",
+                "conservative",
+                "-buildmode",
+                "c-shared",
                 "-o",
                 wasm_path.to_str().unwrap(),
                 "./",
@@ -958,6 +962,14 @@ impl Smoketest {
                 String::from_utf8_lossy(&output.stderr)
             );
         }
+
+        // Post-process: add __preinit__10_go_init export aliasing _initialize.
+        // SpacetimeDB calls __preinit__* exports before __describe_module__,
+        // which ensures Go's init() functions run and populate module registries.
+        let wasm_bytes = fs::read(&wasm_path).context("Failed to read Go WASM module")?;
+        let patched = add_go_preinit_export(&wasm_bytes)
+            .ok_or_else(|| anyhow::anyhow!("Failed to patch Go WASM: _initialize export not found"))?;
+        fs::write(&wasm_path, patched).context("Failed to write patched Go WASM module")?;
 
         self.use_precompiled_wasm_path(&wasm_path)?;
         self.publish_module_named(module_name, true)
@@ -1650,5 +1662,113 @@ mod tests {
         let input = "hello   \nworld  \n  foo  ";
         let expected = "hello\nworld\n  foo";
         assert_eq!(normalize_whitespace(input), expected);
+    }
+}
+
+/// Add a `__preinit__10_go_init` export to a Go WASM binary that aliases `_initialize`.
+/// This mirrors the post-processing done by `spacetime build` in `crates/cli/src/tasks/go.rs`.
+fn add_go_preinit_export(wasm: &[u8]) -> Option<Vec<u8>> {
+    if wasm.len() < 8 {
+        return None;
+    }
+    let preinit_name = "__preinit__10_go_init";
+    let func_idx = wasm_find_export_func_idx(wasm, "_initialize")?;
+
+    let name_bytes = preinit_name.as_bytes();
+    let mut new_export = Vec::new();
+    wasm_leb_encode(&mut new_export, name_bytes.len() as u64);
+    new_export.extend_from_slice(name_bytes);
+    new_export.push(0); // kind = func
+    wasm_leb_encode(&mut new_export, func_idx as u64);
+
+    wasm_inject_export(wasm, new_export)
+}
+
+fn wasm_find_export_func_idx(wasm: &[u8], name: &str) -> Option<u32> {
+    let mut pos = 8usize;
+    while pos < wasm.len() {
+        let sid = wasm[pos];
+        pos += 1;
+        let (sz, after) = wasm_leb_decode(wasm, pos)?;
+        pos = after;
+        let section_end = pos + sz as usize;
+        if sid == 7 {
+            let (count, mut epos) = wasm_leb_decode(wasm, pos)?;
+            for _ in 0..count {
+                let (nlen, after_nlen) = wasm_leb_decode(wasm, epos)?;
+                epos = after_nlen;
+                let export_name = std::str::from_utf8(&wasm[epos..epos + nlen as usize]).ok()?;
+                epos += nlen as usize;
+                let kind = wasm[epos];
+                epos += 1;
+                let (idx, after_idx) = wasm_leb_decode(wasm, epos)?;
+                epos = after_idx;
+                if export_name == name && kind == 0 {
+                    return Some(idx as u32);
+                }
+            }
+        }
+        pos = section_end;
+    }
+    None
+}
+
+fn wasm_inject_export(wasm: &[u8], new_export: Vec<u8>) -> Option<Vec<u8>> {
+    let mut pos = 8usize;
+    while pos < wasm.len() {
+        let sid = wasm[pos];
+        let sid_pos = pos;
+        pos += 1;
+        let (sz, after) = wasm_leb_decode(wasm, pos)?;
+        pos = after;
+        let section_end = pos + sz as usize;
+        if sid == 7 {
+            let (count, after_count) = wasm_leb_decode(wasm, pos)?;
+            let mut new_count_encoded = Vec::new();
+            wasm_leb_encode(&mut new_count_encoded, (count + 1) as u64);
+            let rest = &wasm[after_count..section_end];
+            let mut new_content = new_count_encoded;
+            new_content.extend_from_slice(rest);
+            new_content.extend_from_slice(&new_export);
+            let mut new_size_encoded = Vec::new();
+            wasm_leb_encode(&mut new_size_encoded, new_content.len() as u64);
+            let mut result = Vec::with_capacity(wasm.len() + new_export.len() + 4);
+            result.extend_from_slice(&wasm[..sid_pos]);
+            result.push(7);
+            result.extend_from_slice(&new_size_encoded);
+            result.extend_from_slice(&new_content);
+            result.extend_from_slice(&wasm[section_end..]);
+            return Some(result);
+        }
+        pos = section_end;
+    }
+    None
+}
+
+fn wasm_leb_decode(data: &[u8], mut pos: usize) -> Option<(u64, usize)> {
+    let mut v = 0u64;
+    let mut s = 0u32;
+    loop {
+        let b = *data.get(pos)? as u64;
+        pos += 1;
+        v |= (b & 0x7f) << s;
+        s += 7;
+        if (b & 0x80) == 0 {
+            break;
+        }
+    }
+    Some((v, pos))
+}
+
+fn wasm_leb_encode(out: &mut Vec<u8>, mut n: u64) {
+    loop {
+        let b = (n & 0x7f) as u8;
+        n >>= 7;
+        if n != 0 {
+            out.push(b | 0x80);
+        } else {
+            out.push(b);
+            break;
+        }
     }
 }
