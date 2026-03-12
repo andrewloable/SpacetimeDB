@@ -228,7 +228,7 @@ impl clap::ValueEnum for ModuleLanguage {
                 "es",
             ])),
             Self::Cpp => Some(clap::builder::PossibleValue::new("cpp").aliases(["c++", "cxx", "C++", "Cpp"])),
-            Self::Go => Some(clap::builder::PossibleValue::new("go").aliases(["golang", "Go"])),
+            Self::Go => Some(clap::builder::PossibleValue::new("go").aliases(["golang", "Go", "Golang"])),
         }
     }
 }

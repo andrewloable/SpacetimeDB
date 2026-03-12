@@ -279,14 +279,12 @@ You can write SpacetimeDB modules in several popular languages, with more to com
 
 - [Rust](https://spacetimedb.com/docs/modules/rust/quickstart)
 - [C#](https://spacetimedb.com/docs/modules/c-sharp/quickstart)
-- [Go](https://spacetimedb.com/docs/modules/go/quickstart)
 
 #### Client Libraries
 
 - [Rust](https://spacetimedb.com/docs/sdks/rust/quickstart)
 - [C#](https://spacetimedb.com/docs/sdks/c-sharp/quickstart)
 - [Typescript](https://spacetimedb.com/docs/sdks/typescript/quickstart)
-- [Go](https://spacetimedb.com/docs/sdks/go/quickstart)
 
 ## Module Benchmark Results
 

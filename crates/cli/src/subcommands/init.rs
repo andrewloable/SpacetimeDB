@@ -178,7 +178,7 @@ pub fn cli() -> clap::Command {
                 .action(clap::ArgAction::SetTrue),
         )
         .arg(Arg::new("lang").long("lang").value_name("LANG").help(
-            "Server language: rust, csharp, typescript, cpp (it can only be used when --template is not specified)",
+            "Server language: rust, csharp, typescript, cpp, go (it can only be used when --template is not specified)",
         ))
         .arg(
             Arg::new("template")
@@ -857,7 +857,7 @@ async fn get_template_config_interactive(
         }
     } else if client_selection == none_index {
         // Ask for server language only
-        let server_lang_choices = vec!["Rust", "C#", "TypeScript", "Go"];
+        let server_lang_choices = vec!["Rust", "C#", "TypeScript", "C++", "Go"];
         let server_selection = Select::with_theme(&theme)
             .with_prompt("Select server language")
             .items(&server_lang_choices)
@@ -868,7 +868,8 @@ async fn get_template_config_interactive(
             0 => Some(ServerLanguage::Rust),
             1 => Some(ServerLanguage::Csharp),
             2 => Some(ServerLanguage::TypeScript),
-            3 => Some(ServerLanguage::Go),
+            3 => Some(ServerLanguage::Cpp),
+            4 => Some(ServerLanguage::Go),
             _ => unreachable!("Invalid server language selection"),
         };
 
@@ -1536,6 +1537,13 @@ fn print_next_steps(config: &TemplateConfig, _project_path: &Path) -> anyhow::Re
             println!("  spacetime generate --lang go --out-dir module_bindings --module-path spacetimedb");
             println!("  go run .");
         }
+        (TemplateType::Builtin, Some(ServerLanguage::Go), None) => {
+            println!(
+                "  spacetime publish --module-path spacetimedb {}{}",
+                if config.use_local { "--server local " } else { "" },
+                config.project_name
+            );
+        }
         (TemplateType::Empty, _, Some(ClientLanguage::TypeScript)) => {
             println!("  npm install");
             if config.server_lang.is_some() {
@@ -1571,6 +1579,13 @@ fn print_next_steps(config: &TemplateConfig, _project_path: &Path) -> anyhow::Re
                 println!("  spacetime generate --lang go --out-dir module_bindings --module-path spacetimedb");
             }
             println!("  go run .");
+        }
+        (TemplateType::Empty, Some(ServerLanguage::Go), None) => {
+            println!(
+                "  spacetime publish --module-path spacetimedb {}{}",
+                if config.use_local { "--server local " } else { "" },
+                config.project_name
+            );
         }
         (_, Some(ServerLanguage::Go), _) => {
             println!("  cd spacetimedb");
@@ -1644,6 +1659,35 @@ fn check_for_dotnet() -> bool {
         .unwrap();
     }
     println!("{}", msg.yellow());
+    false
+}
+
+fn check_for_go() -> bool {
+    match std::env::consts::OS {
+        "linux" | "freebsd" | "netbsd" | "openbsd" | "solaris" | "macos" => {
+            if find_executable("go").is_some() {
+                return true;
+            }
+            println!(
+                "{}",
+                "Warning: You have created a Go project, but `go` was not found in PATH.\nInstall Go from https://go.dev/dl/\n"
+                    .yellow()
+            );
+        }
+        "windows" => {
+            if find_executable("go.exe").is_some() {
+                return true;
+            }
+            println!(
+                "{}",
+                "Warning: You have created a Go project, but `go.exe` was not found in PATH.\nInstall Go from https://go.dev/dl/\n"
+                    .yellow()
+            );
+        }
+        unsupported_os => {
+            println!("{}", format!("This OS may be unsupported: {unsupported_os}").yellow());
+        }
+    }
     false
 }
 
@@ -1825,6 +1869,10 @@ pub fn init_go_project(project_path: &Path, project_name: &str) -> anyhow::Resul
         (
             include_str!("../../../../templates/basic-go/spacetimedb/stdb.yaml"),
             "stdb.yaml",
+        ),
+        (
+            include_str!("../../../../templates/basic-go/spacetimedb/.gitignore"),
+            ".gitignore",
         ),
     ];
 
@@ -2357,5 +2405,29 @@ mod tests {
 
         let db = get_local_database_name(&options, "my-project", false).unwrap();
         assert_eq!(db, "my-explicit-db");
+    }
+
+    #[test]
+    fn test_parse_server_lang_go_is_supported() {
+        let parsed = parse_server_lang(&Some("go".to_string())).unwrap();
+        assert_eq!(parsed, Some(ServerLanguage::Go));
+    }
+
+    #[test]
+    fn test_parse_server_lang_golang_alias_is_supported() {
+        let parsed = parse_server_lang(&Some("golang".to_string())).unwrap();
+        assert_eq!(parsed, Some(ServerLanguage::Go));
+    }
+
+    #[test]
+    fn test_parse_client_lang_empty_is_none() {
+        let parsed = parse_client_lang(&Some(String::new())).unwrap();
+        assert_eq!(parsed, None);
+    }
+
+    #[test]
+    fn test_parse_client_lang_go_is_supported() {
+        let parsed = parse_client_lang(&Some("go".to_string())).unwrap();
+        assert_eq!(parsed, Some(ClientLanguage::Go));
     }
 }

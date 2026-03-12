@@ -1,5 +1,8 @@
-use crate::detect::find_executable;
+use crate::detect::{find_executable, has_go_fmt};
 use anyhow::Context;
+use itertools::Itertools;
+use std::collections::BTreeSet;
+use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -279,4 +282,32 @@ fn write_if_changed(path: &Path, contents: &[u8]) -> std::io::Result<()> {
         Ok(existing) if existing == contents => Ok(()),
         _ => std::fs::write(path, contents),
     }
+}
+
+pub(crate) fn gofmt(project_dir: &Path, generated_files: BTreeSet<PathBuf>) -> anyhow::Result<()> {
+    if !has_go_fmt() {
+        anyhow::bail!("gofmt is not installed. Please install Go and ensure `gofmt` is in PATH.");
+    }
+
+    let cwd = std::env::current_dir().context("Failed to retrieve current directory")?;
+    let go_files = generated_files
+        .into_iter()
+        .filter(|f| f.extension().is_some_and(|ext| ext == "go"))
+        .map(|f| if f.is_absolute() { f } else { cwd.join(f) })
+        .map(|f| f.canonicalize().unwrap_or(f))
+        .collect_vec();
+
+    if go_files.is_empty() {
+        return Ok(());
+    }
+
+    duct::cmd(
+        "gofmt",
+        std::iter::once(OsString::from("-w")).chain(go_files.into_iter().map_into()),
+    )
+    .dir(project_dir)
+    .run()
+    .context("Failed to run gofmt on generated Go files")?;
+
+    Ok(())
 }
