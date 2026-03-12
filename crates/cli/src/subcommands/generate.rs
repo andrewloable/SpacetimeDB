@@ -721,8 +721,8 @@ impl Language {
         match self {
             Language::Rust => rustfmt(generated_files)?,
             Language::Csharp => dotnet_format(project_dir, generated_files)?,
-            Language::TypeScript | Language::Go => {
-                // TODO: implement gofmt formatting.
+            Language::TypeScript => {
+                // TODO: implement formatting.
             }
             Language::Go => {
                 gofmt(project_dir, generated_files)?;

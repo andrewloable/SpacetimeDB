@@ -1662,35 +1662,6 @@ fn check_for_dotnet() -> bool {
     false
 }
 
-fn check_for_go() -> bool {
-    match std::env::consts::OS {
-        "linux" | "freebsd" | "netbsd" | "openbsd" | "solaris" | "macos" => {
-            if find_executable("go").is_some() {
-                return true;
-            }
-            println!(
-                "{}",
-                "Warning: You have created a Go project, but `go` was not found in PATH.\nInstall Go from https://go.dev/dl/\n"
-                    .yellow()
-            );
-        }
-        "windows" => {
-            if find_executable("go.exe").is_some() {
-                return true;
-            }
-            println!(
-                "{}",
-                "Warning: You have created a Go project, but `go.exe` was not found in PATH.\nInstall Go from https://go.dev/dl/\n"
-                    .yellow()
-            );
-        }
-        unsupported_os => {
-            println!("{}", format!("This OS may be unsupported: {unsupported_os}").yellow());
-        }
-    }
-    false
-}
-
 fn check_for_git() -> bool {
     match std::env::consts::OS {
         "linux" | "freebsd" | "netbsd" | "openbsd" | "solaris" => {

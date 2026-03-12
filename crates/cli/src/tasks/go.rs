@@ -196,7 +196,7 @@ fn inject_export(wasm: &[u8], new_export: Vec<u8>) -> Option<Vec<u8>> {
 
             let new_count_encoded = {
                 let mut v = Vec::new();
-                leb_encode(&mut v, new_count as u64);
+                leb_encode(&mut v, new_count);
                 v
             };
 

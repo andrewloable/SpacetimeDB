@@ -1653,18 +1653,6 @@ fn normalize_whitespace(s: &str) -> String {
     s.lines().map(|line| line.trim_end()).collect::<Vec<_>>().join("\n")
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_normalize_whitespace() {
-        let input = "hello   \nworld  \n  foo  ";
-        let expected = "hello\nworld\n  foo";
-        assert_eq!(normalize_whitespace(input), expected);
-    }
-}
-
 /// Add a `__preinit__10_go_init` export to a Go WASM binary that aliases `_initialize`.
 /// This mirrors the post-processing done by `spacetime build` in `crates/cli/src/tasks/go.rs`.
 fn add_go_preinit_export(wasm: &[u8]) -> Option<Vec<u8>> {
@@ -1725,7 +1713,7 @@ fn wasm_inject_export(wasm: &[u8], new_export: Vec<u8>) -> Option<Vec<u8>> {
         if sid == 7 {
             let (count, after_count) = wasm_leb_decode(wasm, pos)?;
             let mut new_count_encoded = Vec::new();
-            wasm_leb_encode(&mut new_count_encoded, (count + 1) as u64);
+            wasm_leb_encode(&mut new_count_encoded, count + 1);
             let rest = &wasm[after_count..section_end];
             let mut new_content = new_count_encoded;
             new_content.extend_from_slice(rest);
@@ -1770,5 +1758,17 @@ fn wasm_leb_encode(out: &mut Vec<u8>, mut n: u64) {
             out.push(b);
             break;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_normalize_whitespace() {
+        let input = "hello   \nworld  \n  foo  ";
+        let expected = "hello\nworld\n  foo";
+        assert_eq!(normalize_whitespace(input), expected);
     }
 }
