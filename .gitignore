@@ -267,4 +267,5 @@ nul
 
 # Local testing
 localtest/
-beads_STDB
+.beads/
+beads_STDB/
