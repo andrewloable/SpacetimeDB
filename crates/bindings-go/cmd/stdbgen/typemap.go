@@ -157,6 +157,38 @@ func specialWriteOf(t string) string {
 	return ""
 }
 
+// zeroValOf returns the Go zero-value literal for a schema type.
+// Used by the test template to create test instances with known values.
+func zeroValOf(t string) string {
+	switch t {
+	case "String":
+		return `""`
+	case "Bool":
+		return "false"
+	case "I8", "U8", "I16", "U16", "I32", "U32", "I64", "U64":
+		return "0"
+	case "I128", "U128":
+		return "0"
+	case "F32", "F64":
+		return "0.0"
+	case "Bytes":
+		return "[]byte{}"
+	case "Identity":
+		return "types.Identity{}"
+	case "Timestamp":
+		return "types.Timestamp(0)"
+	}
+	if strings.HasPrefix(t, "Option<") && strings.HasSuffix(t, ">") {
+		return "nil"
+	}
+	return `""` // fallback
+}
+
+// isOptionType returns true if the schema type is an Option<T>.
+func isOptionType(t string) bool {
+	return strings.HasPrefix(t, "Option<") && strings.HasSuffix(t, ">")
+}
+
 // customAlgebraicTypeOf builds the Go expression for a TypeExport's AlgebraicType.
 func customAlgebraicTypeOf(te TypeExport) string {
 	if len(te.Sum) > 0 {

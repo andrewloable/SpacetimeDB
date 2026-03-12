@@ -235,12 +235,13 @@ spacetimedb.LogDebug("debug")
 `stdbgen` reads a YAML schema and generates Go registration code.
 
 ```
-Usage: stdbgen [-schema stdb.yaml] [-out generated_stdb.go] [-pkg main]
+Usage: stdbgen [-schema stdb.yaml] [-out generated_stdb.go] [-pkg main] [-tests]
 
 Flags:
   -schema string   Path to schema YAML file (default "stdb.yaml")
   -out    string   Output Go file (default "generated_stdb.go")
   -pkg    string   Package name (default: from schema or "main")
+  -tests           Also generate encode/decode round-trip test file
 ```
 
 Schema fields:
@@ -262,3 +263,79 @@ reducers:
         type: String
     visibility: public        # public or private (default: public)
 ```
+
+## Testing
+
+The stdbgen code generator has comprehensive unit tests:
+
+```bash
+# Run all stdbgen tests
+cd crates/bindings-go/cmd/stdbgen
+go test -v ./...
+
+# Run with coverage report
+go test -coverprofile=coverage.out ./...
+go tool cover -func=coverage.out
+
+# Generate HTML coverage report
+go tool cover -html=coverage.out -o coverage.html
+```
+
+The Go SDK itself (`crates/bindings-go/*.go`) uses `//go:build tinygo` constraints and
+requires the SpacetimeDB WASM host. It is tested via Rust smoketests that compile Go
+modules to WASM, publish them, and verify behavior end-to-end:
+
+```bash
+# Run Go-specific smoketests (from project root)
+cargo smoketest "go_module"
+```
+
+## Benchmarks
+
+The Go module benchmarks compare performance across all supported server-side languages
+(Rust, C#, Go, C++, TypeScript). Benchmark modules live in `modules/benchmarks-go/`.
+
+### Running benchmarks
+
+```bash
+# Ensure correct Rust toolchain (from project root)
+export PATH="$HOME/.cargo/bin:$PATH"
+
+# Run all Criterion benchmarks (SQLite, raw DB, and module-level)
+cargo bench -p spacetimedb-bench --bench generic --bench special
+
+# Filter to specific benchmark patterns
+cargo bench -p spacetimedb-bench -- 'stdb_module'       # module-level only
+cargo bench -p spacetimedb-bench -- 'insert_bulk'        # insert benchmarks
+cargo bench -p spacetimedb-bench -- 'stdb_raw/.*/filter'  # raw DB filter benchmarks
+
+# Generate a saved baseline for comparison
+cargo bench -p spacetimedb-bench --bench generic --bench special -- --save-baseline current
+
+# Generate a markdown report from a saved baseline
+cargo run -p spacetimedb-bench --bin summarize markdown-report current
+```
+
+### Building the Go benchmark module
+
+```bash
+# Build the Go benchmark WASM module directly
+spacetime build -p modules/benchmarks-go
+
+# Or build via the CLI crate (which includes TinyGo compilation)
+cargo build -p spacetimedb-cli
+```
+
+### Benchmark categories
+
+| Bench suite | Description |
+|-------------|-------------|
+| `generic`   | Insert, iterate, update, filter operations across SQLite, raw SpacetimeDB, and WASM modules |
+| `special`   | Targeted benchmarks for specific operations (circles, IA loop, synthetic workloads) |
+| `subscription` | Subscription performance tests |
+| `index`     | Index performance (BTree, unique) |
+
+### CI benchmarks
+
+On pull requests, comment `benchmarks please` to trigger the CI benchmark suite. Results
+are compared against the base branch and posted as a PR comment.

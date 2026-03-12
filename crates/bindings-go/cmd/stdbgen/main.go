@@ -25,38 +25,17 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-func main() {
-	schemaFile := flag.String("schema", "stdb.yaml", "path to the schema YAML file")
-	outFile := flag.String("out", "generated_stdb.go", "path to the output Go file")
-	pkg := flag.String("pkg", "", "package name (defaults to value from schema or 'main')")
-	flag.Parse()
+// tmplData holds the complete data passed to the code generation template.
+type tmplData struct {
+	Schema
+	SchemaFile    string
+	PrefixFilters []PrefixFilterFunc
+}
 
-	data, err := os.ReadFile(*schemaFile)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "stdbgen: cannot read schema %s: %v\n", *schemaFile, err)
-		os.Exit(1)
-	}
-
-	var schema Schema
-	if err := yaml.Unmarshal(data, &schema); err != nil {
-		fmt.Fprintf(os.Stderr, "stdbgen: cannot parse schema: %v\n", err)
-		os.Exit(1)
-	}
-
-	if *pkg != "" {
-		schema.Package = *pkg
-	}
-	if schema.Package == "" {
-		schema.Package = "main"
-	}
-
-	// Build a table-name → columns map so helpers can resolve column IDs.
-	tableColumns := make(map[string][]Column)
-	for _, t := range schema.Tables {
-		tableColumns[t.Name] = t.Columns
-	}
-
-	funcMap := template.FuncMap{
+// buildFuncMap constructs the template.FuncMap used by the code generation template.
+// tableColumns provides column definitions keyed by table name for index resolution.
+func buildFuncMap(tableColumns map[string][]Column) template.FuncMap {
+	return template.FuncMap{
 		"title":      camelTitle,
 		"camelTitle": camelTitle,
 		"camelCols":  camelCols,
@@ -94,15 +73,13 @@ func main() {
 		"idxKeyWrite": func(tableName string, indexCols []string) string {
 			return idxKeyWriteOf(tableColumns, tableName, indexCols)
 		},
+		"zeroVal":      zeroValOf,
+		"isOptionType": isOptionType,
 	}
+}
 
-	tmpl, err := template.New("stdb").Funcs(funcMap).Parse(codeTmpl)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "stdbgen: template parse error: %v\n", err)
-		os.Exit(1)
-	}
-
-	// Pre-compute multi-column BTree prefix filter specs.
+// buildPrefixFilters pre-computes multi-column BTree prefix filter specs from the schema.
+func buildPrefixFilters(schema Schema, tableColumns map[string][]Column) []PrefixFilterFunc {
 	var prefixFilters []PrefixFilterFunc
 	for _, t := range schema.Tables {
 		cols := t.Columns
@@ -150,33 +127,117 @@ func main() {
 			}
 		}
 	}
+	return prefixFilters
+}
 
-	type tmplData struct {
-		Schema
-		SchemaFile    string
-		PrefixFilters []PrefixFilterFunc
+// generate takes a parsed schema and schema filename, and returns the gofmt-formatted
+// Go source code. This is the core generation logic extracted from main() for testability.
+func generate(schema Schema, schemaFile string) ([]byte, error) {
+	return generateWithTemplate(schema, schemaFile, codeTmpl)
+}
+
+// generateTests produces a gofmt-formatted Go test file that tests encode/decode
+// round-trips for each table defined in the schema.
+func generateTests(schema Schema, schemaFile string) ([]byte, error) {
+	return generateWithTemplate(schema, schemaFile, testTmpl)
+}
+
+// generateWithTemplate is the internal generation function that accepts a custom template
+// string. This enables testing of error paths (bad template, bad output, etc.).
+func generateWithTemplate(schema Schema, schemaFile string, tmplStr string) ([]byte, error) {
+	// Build a table-name → columns map so helpers can resolve column IDs.
+	tableColumns := make(map[string][]Column)
+	for _, t := range schema.Tables {
+		tableColumns[t.Name] = t.Columns
 	}
-	d := tmplData{Schema: schema, SchemaFile: *schemaFile, PrefixFilters: prefixFilters}
+
+	funcMap := buildFuncMap(tableColumns)
+
+	tmpl, err := template.New("stdb").Funcs(funcMap).Parse(tmplStr)
+	if err != nil {
+		return nil, fmt.Errorf("template parse error: %w", err)
+	}
+
+	prefixFilters := buildPrefixFilters(schema, tableColumns)
+
+	d := tmplData{Schema: schema, SchemaFile: schemaFile, PrefixFilters: prefixFilters}
 
 	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, d); err != nil {
-		fmt.Fprintf(os.Stderr, "stdbgen: template execute error: %v\n", err)
-		os.Exit(1)
+		return nil, fmt.Errorf("template execute error: %w", err)
 	}
 
 	// Format the generated code.
 	formatted, err := format.Source(buf.Bytes())
 	if err != nil {
-		// Write unformatted so the user can see what went wrong.
-		_ = os.WriteFile(*outFile, buf.Bytes(), 0644)
-		fmt.Fprintf(os.Stderr, "stdbgen: gofmt error (raw output written): %v\n", err)
-		os.Exit(1)
+		return nil, fmt.Errorf("gofmt error: %w\nraw output:\n%s", err, buf.String())
+	}
+
+	return formatted, nil
+}
+
+// run is the core logic of main(), separated so it can be tested with coverage.
+// Returns a non-zero exit code on failure, 0 on success.
+func run(args []string) int {
+	fs := flag.NewFlagSet("stdbgen", flag.ContinueOnError)
+	schemaFile := fs.String("schema", "stdb.yaml", "path to the schema YAML file")
+	outFile := fs.String("out", "generated_stdb.go", "path to the output Go file")
+	pkg := fs.String("pkg", "", "package name (defaults to value from schema or 'main')")
+	genTests := fs.Bool("tests", false, "also generate encode/decode round-trip test file")
+	if err := fs.Parse(args); err != nil {
+		return 1
+	}
+
+	data, err := os.ReadFile(*schemaFile)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "stdbgen: cannot read schema %s: %v\n", *schemaFile, err)
+		return 1
+	}
+
+	var schema Schema
+	if err := yaml.Unmarshal(data, &schema); err != nil {
+		fmt.Fprintf(os.Stderr, "stdbgen: cannot parse schema: %v\n", err)
+		return 1
+	}
+
+	if *pkg != "" {
+		schema.Package = *pkg
+	}
+	if schema.Package == "" {
+		schema.Package = "main"
+	}
+
+	formatted, err := generate(schema, *schemaFile)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "stdbgen: %v\n", err)
+		return 1
 	}
 
 	if err := os.WriteFile(*outFile, formatted, 0644); err != nil {
 		fmt.Fprintf(os.Stderr, "stdbgen: cannot write %s: %v\n", *outFile, err)
-		os.Exit(1)
+		return 1
 	}
 
 	fmt.Printf("stdbgen: wrote %s\n", *outFile)
+
+	// Optionally generate test file for encode/decode round-trips.
+	if *genTests && len(schema.Tables) > 0 {
+		testOut := strings.TrimSuffix(*outFile, ".go") + "_test.go"
+		testFormatted, err := generateTests(schema, *schemaFile)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "stdbgen: test generation: %v\n", err)
+			return 1
+		}
+		if err := os.WriteFile(testOut, testFormatted, 0644); err != nil {
+			fmt.Fprintf(os.Stderr, "stdbgen: cannot write %s: %v\n", testOut, err)
+			return 1
+		}
+		fmt.Printf("stdbgen: wrote %s\n", testOut)
+	}
+
+	return 0
+}
+
+func main() {
+	os.Exit(run(os.Args[1:]))
 }
